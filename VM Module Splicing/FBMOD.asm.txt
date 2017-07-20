@@ -1,0 +1,2019 @@
+&SYSPARM TITLE 'FIRST BOSTON CORP. (FITT): MODULE INFO'
+*---------------------------------------------------------------------*
+*  MAINTENANCE HISTORY                                                *
+*                                                                     *
+*  VER DATE   PGR DESCRIPTION                                         *
+*  --- ----   --- -----------                                         *
+*  1.0 931201 WAH INITIAL CODE.                                       *
+*  1.1 931215 WAH SET RETURN CODE ON BUFFER ALLOC FAILURE.            *
+*  1.2 940608 WAH MISC CLEANUP: BUFFER LEN COMPUTN, ASSIGN MAX LRL    *
+*                 TO SYM, COMMENTS. NO SPEC CHGS.                     *
+*---------------------------------------------------------------------*
+         EJECT
+         COPY  FBCSP11
+         EJECT
+&CSNAME  CSECT
+         REGEQU
+         EJECT
+*---------------------------------------------------------------------*
+RBASE    EQU   R3                  BASE
+RSSL     EQU   R4                  SAVE STACK LENGTH
+RSSU     EQU   R5                  SAVE STACK LIMIT
+RSSP     EQU   R6                  SAVE STACK POINTER
+RWS      EQU   R7                  W/S POINTER
+RBAS2    EQU   R8                  BASE (2)
+RBAS3    EQU   R9                  BASE (3)
+*---------------------------------------------------------------------*
+         SPACE 2
+*---------------------------------------------------------------------*
+         USING &CSNAME,RBASE,RBAS2,RBAS3
+         USING WS,RWS
+*---------------------------------------------------------------------*
+         SPACE 2
+*---------------------------------------------------------------------*
+RCPAMERR EQU   16                  PARAMETER ERROR
+RCSTOERR EQU   12                  STORAGE ERROR
+RCXCMERR EQU   8                   EXECCOMM ERROR
+RCFILERR EQU   4                   F/S ERROR
+*---------------------------------------------------------------------*
+         EJECT
+*---------------------------------------------------------------------*
+*        W/S                                                          *
+*---------------------------------------------------------------------*
+*
+WS       DSECT ,                   WORKING STORAGE
+*
+PLISTSAV EQU   *
+         DS    CL8                 COMMAND
+PLCONFIG DS    CL8                 CONFIG NAME
+PLMODFN  DS    CL8                 MOD FILEID
+PLMODFT  DS    CL8                 .
+PLMODFM  DS    CL8                 .
+PLEPNAM  DS    CL8                 NAME LOOKUP
+PLOPN1   DS    CL8                 .
+PLMAPCAP DS    CL8                 MAP CAPACITY
+PLMODVAR DS    CL8                 MOD DATA VARIABLE STEM
+PLESDVAR DS    CL8                 ESD DATA VARIABLE STEM
+PLOWNER  DS    CL8                 DISK OWNER
+PLDEVNO  DS    CL8                 DEVICE NO
+PLDCTFT  DS    CL8                 ESD DICTIONARY FT
+PLDCTFM  DS    CL8                 ESD DICTIONARY FM
+PLISTREQ EQU   (*-PLISTSAV)/8
+*
+FENCE    DS    XL256               SCAN TO FENCE
+NUMBERS  DS    XL256               VALIDATE NUMBERS
+BLANK    DS    XL256               SCAN TO BLANK
+NONBLANK DS    XL256               SCAN TO NON-BLANK
+DIAGNOSC DS    4D                  DATE/TIME DIAGNOSE
+EPLIST   DS    4A
+MODSTAMP DS    CL12                MOD DATE/TIME YYMMDDHHMMSS
+DW       DS    D                   W/A
+SAVE     DS    18F                 S/A
+XXX      DS    16F                 DEBUG S/A (FOR TEMP LINEDITS, ETC)
+MODSHVBL DS    XL(XSHVSECL)
+ESDSHVBL DS    XL(XSHVSECL*ESDVARNO)
+MODVARBL DS    XL(VARSECL)
+ESDVARBL DS    XL(VARSECL)
+MODVARDS DS    XL(VDSSECL*4)
+ESDBXLES DS    3A                  S/A
+RETURNC  DS    F                   S/A
+MAPENTMX DS    F                   S/A
+MAPENTLN DS    F
+CUMBUFAD DS    F                   S/A
+CUMBUFDW DS    F                   S/A
+FILBUFAD DS    A                   S/A
+FILBUFLN DS    A                   S/A
+MAPBUFAD DS    A                   S/A
+MAPBUFLN DS    F                   S/A
+MAPBUFHI DS    A
+MAPBXLES DS    2A
+ESDBUFAD DS    A                   S/A
+ESDBUFLN DS    F                   S/A
+ESDBUFHI DS    F                   S/A
+ESDSDNXT DS    F                   S/A
+PLISTADR DS    A                   S/A
+PLISTCNT DS    F                   S/A
+OLDMAPRN DS    F
+OLDMAPRC DS    F
+OLDMAPEC DS    F
+OLDMAPSZ DS    F
+OLDMAPRD DS    F
+OLDRLDRN DS    F
+OLDRLDRC DS    F
+OLDTXTRN DS    F
+OLDTXTRC DS    F
+MAPRCDLN DS    F
+NEXTREC  DS    F
+OLDLRECL DS    F
+OLDSTATE DS    F
+OLDMODLN DS    F
+OLDMODFR DS    F
+OLDMODTO DS    F
+MINMODRC DS    F
+OLDMODRC DS    F
+MODXAIND DS    F
+MODXAFLG DS    F
+MODSTATU DS    F
+MODHDRLN DS    F
+ESDCOUNT DS    F
+ESDTARGT DS    F
+         EJECT
+*---------------------------------------------------------------------*
+*        W/S                                                          *
+*---------------------------------------------------------------------*
+*
+SS       FBSBL10 CAPACITY=5,SSP=RSSP,SSL=RSSL,SSU=RSSU,SSX=ABEND3
+*
+SHLCB    FBSHL10M
+         EJECT
+*---------------------------------------------------------------------*
+*        W/S                                                          *
+*---------------------------------------------------------------------*
+*
+FSCBMOD  FSCB  FORM=E              MODULE INPUT
+*
+FSCBDCT  FSCB  FORM=E              DICTIONARY OUTPUT
+         EJECT
+*---------------------------------------------------------------------*
+*        W/S                                                          *
+*---------------------------------------------------------------------*
+*
+HDRREC   DS    CL80
+WORK12   DS    CL12
+CHRSYMAD DS    CL11
+CHRSECLN DS    CL11
+CHRSYMID DS    CL3
+CHRIDX   DS    CL7
+LASSECNM DS    CL8
+LASREFAD DS    A
+LASSECLN DS    A
+LASCLAS1 DS    CL1
+*
+STT#PROC EQU   0                   PROCESSING COMPLETED W/O EXCEPTIONS
+STT#NOFD EQU   1                   EP SEARCH SPECIFIED - NOT FOUND
+STT#RFMX EQU   2                   MODULE IS RECFM F
+STT#NOMA EQU   3                   MODULE HAS NO MAP
+STT#HDLX EQU   4                   HEADER LEN /= 80
+STT#XAIX EQU   5                   XA BITS NOT BOTH ON OR OFF
+STT#MLEN EQU   6                   MAP LENGTH UNEXPECTED
+STT#MEXH EQU   7                   MAP BUFFER EXHAUSTED
+STT#NESD EQU   8                   NO ESD ENTRIES PARSED
+STT#SMAL EQU   9                   NOT ENOUGH RCDS IN MODULE
+STT#LRLX EQU   10                  MODULE LRECL > MAX
+STT#OPNX EQU   11                  OPEN ERROR
+*
+MAXMODLR EQU   65535               MAXIMUM MODULE FILE LRECL
+*
+STTBUF   EQU   *
+STTFMODE DS    CL2,C
+STTFREEA DS    CL80
+STTBUFLN EQU   *-STTBUF
+*
+*
+DCTREC   EQU   *
+DCTOWNER DS    CL8
+DCTDEVNO DS    CL4
+DCTMODFN DS    CL8
+DCTMODFT DS    CL8
+DCTMODFM DS    CL2
+DCTSTAMP DS    CL12
+DCTSYMBL DS    CL8
+DCTSYMID DS    CL2
+DCTCLAS1 DS    CL1
+DCTCLAS2 DS    CL1
+DCTSYMAD DS    CL10
+DCTSECNM DS    CL8
+DCTSECLN DS    CL8
+DCTRECLN EQU   *-DCTREC
+         EJECT
+*---------------------------------------------------------------------*
+*        W/S                                                          *
+*---------------------------------------------------------------------*
+*
+PROC1    DS    BL1
+PROC1MIP EQU   1
+*
+OPN1     DS    BL1
+OPN1DCT  EQU   1
+OPN1FND  EQU   2
+OPN1IGN  EQU   4
+OPN1ESD  EQU   8                   =1, SET ESD TABLE TO STEM VAR
+*
+APPLMSGL APPLMSG MF=L,MAXSUBS=10
+*
+DCXCB    FBDCX11M
+*
+WSEND    DS    0D
+WSLEN    EQU   WSEND-WS            W/S LENGTH
+         EJECT
+         SHVBLOCK
+         EJECT
+         FSCBD                     FSCB MAP
+         EJECT
+         FSTD
+         EJECT
+*---------------------------------------------------------------------*
+*        CB LAYOUTS                                                   *
+*                                                                     *
+*        VARSECT:  SHARED VARIABLE MASTER CB                          *
+*        VDSSECT:  SHARED VARIABLE DESCRIPTOR LIST CB                 *
+*        XSHVSECT: EXTENDED SHARED VARIABLE CB                        *
+*        ESDENTRY: ESD TABLE LAYOUT                                   *
+*---------------------------------------------------------------------*
+*
+VARSECT  DSECT
+VARPFXAD DS    A
+VARPFXLN DS    F
+VARSFXAD DS    A
+VARSFXLN DS    F
+VARSTEMV DS    F
+VARSHVAD DS    A
+VARSHVHI DS    A
+VARSHVRC DS    A
+VARSECL  EQU   *-VARSECT
+*
+VDSSECT  DSECT
+VDSVALAD DS    A
+VDSVALLN DS    F
+VDSSECL  EQU   *-VDSSECT
+*
+XSHVSECT DSECT
+XSHVSHVB DS    XL(SHVBLEN)
+XSHVVARN DS    CL20
+XSHVSECL EQU   *-XSHVSECT
+*
+ESDENTRY DSECT
+ESDSYMBL DS    CL8                 SYMBOL NAME
+ESDSYMAD DS    A                   SYMBOL LOCATION
+ESDREFAD DS    A                   REF FIELD
+ESDSECLN DS    A                   LENGTH
+ESDCLAS1 DS    CL1                 INDICATOR (1)
+ESDCLAS2 DS    CL1                 INDICATOR (2)
+ESDSYMID DS    AL1                 0=CM 1=LD 2=SD
+ESDSYMCM EQU   0
+ESDSYMLD EQU   1
+ESDSYMSD EQU   2
+         DS    0A                  ALIGN
+ESDENTRL EQU   *-ESDENTRY
+         EJECT
+*---------------------------------------------------------------------*
+*        CB LAYOUTS                                                   *
+*                                                                     *
+*        SFDSECT:  SHELL SORT ICB                                     *
+*---------------------------------------------------------------------*
+*
+SFDSECT  DSECT
+         FBSFD10M
+         EJECT
+*---------------------------------------------------------------------*
+*        INITIALIZATION                                               *
+*---------------------------------------------------------------------*
+*
+&CSNAME  CSECT ,
+         STM   R14,R12,12(R13)     SAVE CALLER REGISTERS
+         LR    RBASE,R15           EPA
+         LA    RBAS2,4095(,RBASE)  .
+         LA    RBAS2,0001(,RBAS2)  .
+         LA    RBAS3,4095(,RBAS2)  .
+         LA    RBAS3,0001(,RBAS3)  .
+         LA    R2,0(,R1)           SAVE PLIST PTR
+*
+         LA    R0,WSLEN/8          GET W/S
+*
+         CMSSTOR OBTAIN,                                               X
+               DWORDS=(0),                                             X
+               ERROR=STORERR
+*
+         LA    RWS,0(,R1)          ADDRESS
+         LA    R0,0(,R1)           CLEAR
+         LA    R1,WSLEN            .
+         XR    R15,R15             .
+         MVCL  R0,R14              .
+         EJECT
+*---------------------------------------------------------------------*
+*        INITIALIZATION                                               *
+*---------------------------------------------------------------------*
+*
+         ST    R2,PLISTADR         SAVE PLIST PTR
+         LA    R15,SAVE            NEW S/A
+         ST    R15,8(,R13)         .
+         ST    R13,4(,R15)         .
+         LR    R13,R15             .
+*
+         FBSBP10
+*
+         LA    R1,DIAGNOSC         GET DATE/TIME
+         DC    X'8310000C'         .
+*
+         MVI   BLANK+64,4
+         TR    NONBLANK,=AL1(4)
+         MVI   NONBLANK+64,0
+         MVI   NUMBERS,4
+         MVC   NUMBERS+1(L'NUMBERS-1),NUMBERS
+         XC    NUMBERS+C'0'(10),NUMBERS+C'0'
+         MVI   FENCE+255,4
+         EJECT
+*---------------------------------------------------------------------*
+*        INITIALIZATION            (CONTINUED)                        *
+*                                                                     *
+*        CHECK THAT PLIST HAS EXPECTED # PARAM'S                      *
+*        MOVE PLIST INTO W/S FOR ADDRESSABILITY CONVENIENCE           *
+*---------------------------------------------------------------------*
+*
+         L     R14,PLISTADR
+         LA    R1,256(,R14)
+         TRT   0(256,R14),FENCE
+         SR    R1,R14
+         SRL   R1,3
+         ST    R1,PLISTCNT
+         CH    R1,=Y(PLISTREQ)
+         BNE   PLISTERR
+*
+******** MOVE PLIST INTO W/S:
+*
+         SLL   R1,3
+         LA    R0,PLISTSAV
+         L     R14,PLISTADR
+         LR    R15,R1
+         MVCL  R0,R14
+*
+         TR    STTBUF(STTBUFLN),=C' '
+         MVC   STTFMODE,=CL2'--'
+         EJECT
+*---------------------------------------------------------------------*
+*        INITIALIZATION            (CONTINUED)                        *
+*                                                                     *
+*        VALIDATE PLIST                                               *
+*---------------------------------------------------------------------*
+*
+******** ENCODE MAPCAP:
+*
+         LA    R0,PLMAPCAP
+         LA    R1,MAPENTMX
+         BAL   R14,ENCNUM
+         BNZ   MAPCPERR
+         ICM   R0,15,MAPENTMX
+         BNP   MAPCPERR
+*
+******** GET MOD VAR NAME LEN:
+*
+         LA    R1,PLMODVAR+L'PLMODVAR
+         TRT   PLMODVAR,BLANK
+         LA    R0,PLMODVAR
+         SR    R1,R0
+         ST    R1,VARPFXLN-VARSECT+MODVARBL
+         ST    R0,VARPFXAD-VARSECT+MODVARBL
+         LA    R0,MODSHVBL
+         ST    R0,VARSHVAD-VARSECT+MODVARBL
+         LA    R0,MODSHVBL+L'MODSHVBL
+         ST    R0,VARSHVHI-VARSECT+MODVARBL
+         LA    R1,MODVARBL
+         BAL   R14,VARPREP
+*
+******** GET ESD VAR NAME LEN:
+*
+         LA    R1,PLESDVAR+L'PLESDVAR
+         TRT   PLESDVAR,BLANK
+         LA    R0,PLESDVAR
+         SR    R1,R0
+         ST    R1,VARPFXLN-VARSECT+ESDVARBL
+         ST    R0,VARPFXAD-VARSECT+ESDVARBL
+         LA    R0,ESDSHVBL
+         ST    R0,VARSHVAD-VARSECT+ESDVARBL
+         LA    R0,ESDSHVBL+L'ESDSHVBL
+         ST    R0,VARSHVHI-VARSECT+ESDVARBL
+         MVC   VARSFXAD-VARSECT+ESDVARBL,=A(ESDVARDF)
+         MVC   VARSFXLN-VARSECT+ESDVARBL,=A(L'ESDVARDF)
+         LA    R1,ESDVARBL
+         BAL   R14,VARPREP
+         EJECT
+*---------------------------------------------------------------------*
+*        INITIALIZATION            (CONTINUED)                        *
+*                                                                     *
+*        VALIDATE PLIST                                               *
+*---------------------------------------------------------------------*
+*
+******** ENCODE OPTIONS:
+*
+         LA    R15,PLOPN1
+         LA    R0,L'PLOPN1
+*
+OPN1SET  EQU   *
+         CLI   0(R15),C' '
+         BE    OPENMOD
+         CLI   0(R15),C'*'
+         BE    OPN1SET2
+         XR    R14,R14
+         IC    R14,0(,R15)
+         LA    R14,OPN1DEF(R14)
+         ICM   R14,1,0(R14)
+         BZ    OPN1ERR
+         IC    R1,OPN1
+         OR    R1,R14
+         STC   R1,OPN1
+*
+OPN1SET2 EQU   *
+         LA    R15,1(,R15)
+         BCT   R0,OPN1SET
+         B     OPENMOD
+         EJECT
+*---------------------------------------------------------------------*
+*        INITIALIZATION            (CONTINUED)                        *
+*                                                                     *
+*        OPEN MODULE                                                  *
+*        GET BUFFERS                                                  *
+*---------------------------------------------------------------------*
+*
+******** GET BUFFER / MAP STORAGE:
+*
+OPENMOD  EQU   *
+         LA    R1,PLMODFN
+         BAL   R14,MODOPN
+         ST    R15,OLDSTATE
+         BNZ   MODOPERR
+*
+******** CAPTURE ACTUAL DISK IN CASE "*" SPECIFIED:
+*
+         MVC   STTFMODE,FSCBFM-FSCBD+FSCBMOD
+*
+******** CHECK THAT FORMAT LOOKS OK:
+*
+         CLI   FSCBFV-FSCBD+FSCBMOD,C'V'
+         BNE   MODRFERR
+         CLC   OLDLRECL,=A(MAXMODLR)
+         BH    MODLRERR
+*
+******** ALLOCATE BUFFERS:
+*
+         BAL   R14,BUFGEN
+         BNZ   FREE
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE                                                    *
+*---------------------------------------------------------------------*
+*
+HDRGET   EQU   *
+         LA    R0,1
+         BAL   R14,MODGET
+         BZ    FREE
+         ST    R15,MODHDRLN
+         CH    R15,=H'80'
+         BNE   HDRLNERR
+         L     R1,FILBUFAD
+         MVC   HDRREC,0(R1)
+         LA    R0,L'HDRREC
+         ST    R0,VDSVALLN-VDSSECT+MODVARDS+2*VDSSECL
+         LA    R0,HDRREC
+         ST    R0,VDSVALAD-VDSSECT+MODVARDS+2*VDSSECL
+*
+******** EDIT FLAG, THEN TEST FOR BOTH XA INDR BITS ON OR OFF:
+*
+         XR    R15,R15
+         IC    R15,HDRREC+43
+         ST    R15,MODXAFLG
+         TM    HDRREC+43,3
+         BZ    HDRGET2A
+         BO    HDRGET2B
+         B     HDRXAERR
+*
+******** XA BITS OFF:
+*
+HDRGET2A DS    0H
+         XC    MODXAIND,MODXAIND
+         MVC   MAPENTLN,=F'20'
+         B     HDRGET3
+*
+******** XA BITS ON:
+*
+HDRGET2B DS    0H
+         MVC   MODXAIND,=F'1'
+         MVC   MAPENTLN,=F'24'
+         B     HDRGET3
+*
+HDRGET3  DS    0H
+         XR    R0,R0
+         ICM   R0,3,HDRREC+40
+         BZ    HDRNOMAP
+         ST    R0,OLDMAPEC
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE                                                    *
+*---------------------------------------------------------------------*
+*
+******** GET MODULE TO/FROM ADDRESSES, LENGTH:
+*
+         MVC   OLDMODFR,HDRREC+4
+         MVC   OLDMODTO,HDRREC+8
+         NC    OLDMODFR,=XL4'7FFFFFFF'
+         NC    OLDMODTO,=XL4'7FFFFFFF'
+         L     R0,OLDMODTO
+         S     R0,OLDMODFR
+         ST    R0,OLDMODLN
+*
+******** GET REC CNTS FOR DIFFERENT REC TYPES:
+*
+         L     R1,OLDMODLN
+         A     R1,=A(MAXMODLR-1)
+         XR    R0,R0
+         D     R0,=A(MAXMODLR)
+         ST    R1,OLDTXTRC
+*
+         L     R1,OLDMAPEC
+         M     R0,MAPENTLN
+         ST    R1,OLDMAPSZ
+*
+         L     R1,OLDMAPSZ
+         A     R1,=A(MAXMODLR-1)
+         XR    R0,R0
+         D     R0,=A(MAXMODLR)
+         ST    R1,OLDMAPRC
+*
+******** GET MIN REC CNT TO READ MODULE FOR OUR PURPOSES (GET MAP):
+*
+         LA    R0,1
+         A     R0,OLDTXTRC
+         A     R0,OLDMAPRC
+         ST    R0,MINMODRC
+         C     R0,OLDMODRC
+         BH    MODSMALL
+*
+******** BUILD PTRS TO START OF TXT, MAP AND RLD SECTIONS:
+*
+         MVC   OLDTXTRN,=F'2'
+         L     R0,OLDTXTRC
+         A     R0,OLDTXTRN
+         ST    R0,OLDMAPRN
+         A     R0,OLDMAPRC
+         ST    R0,OLDRLDRN
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - READ MAP RECORDS BUILDING MAP                    *
+*                                                                     *
+*---------------------------------------------------------------------*
+*
+         MVC   NEXTREC,OLDMAPRN
+         MVC   MAPBUFHI,MAPBUFAD
+         L     R2,OLDMAPRC
+*
+MAPGET   EQU   *
+         L     R0,NEXTREC
+         BAL   R14,MODGET
+         BZ    FREE
+         ST    R15,MAPRCDLN
+*
+******** SEE IF ROOM LEFT IN BUFFER:
+*
+         L     R1,MAPBUFHI
+         S     R1,MAPBUFAD
+         AR    R1,R15
+         C     R1,MAPBUFLN
+         BH    MAPGET2
+*
+******** ROOM LEFT, INSERT:
+*
+         LR    R1,R15
+         L     R0,MAPBUFHI
+         L     R14,FILBUFAD
+         MVCL  R0,R14
+*
+MAPGET2  EQU   *
+         L     R0,MAPBUFHI
+         A     R0,MAPRCDLN
+         ST    R0,MAPBUFHI
+         L     R1,NEXTREC
+         LA    R1,1(,R1)
+         ST    R1,NEXTREC
+         BCT   R2,MAPGET
+*
+******** CHECK THAT LENGTH EXPECTED AND BUFFER BIG ENOUGH:
+*
+         L     R0,MAPBUFHI
+         S     R0,MAPBUFAD
+         ST    R0,OLDMAPRD
+         C     R0,OLDMAPSZ
+         BNE   MAPLNUNX
+         C     R0,MAPBUFLN
+         BH    MAPBFEXH
+*
+******** COMPLETE INFO.3 DESCRIPTOR:
+*
+         L     R0,MAPBUFAD
+         ST    R0,VDSVALAD-VDSSECT+MODVARDS+3*VDSSECL
+         L     R0,OLDMAPSZ
+         ST    R0,VDSVALLN-VDSSECT+MODVARDS+3*VDSSECL
+*
+******** BUILD ESD TABLE FROM MAP ARRAY:
+******** (NUCON AND SYSREF WILL BE OMITTED IF OPTION "I")
+*
+         BAL   R14,ESDGEN
+         ST    R15,ESDCOUNT
+         BZ    MODNOESD
+*
+******** PASS BACK INDEX OF TARGET EP IF OPTION "F":
+******** (OR IF NO OPTION "F", RETURN "1"):
+*
+         BAL   R14,FNDESD
+         ST    R15,ESDTARGT
+         BZ    NAMNOFND
+*
+******** WRITE DICTIONARY OUTPUT IF OPTION "D":
+*
+         BAL   R14,DCTWRT
+         BNZ   FREE
+*
+******** SET "ESD" STEM ARRAYS IF OPTION "E":
+*
+         BAL   R14,ESDSET
+         BNZ   FREE
+*
+******** COMPLETED WITHOUT INCIDENT:
+*
+         B     SUCCEXIT
+         EJECT
+*---------------------------------------------------------------------*
+*        EXITS                                                        *
+*---------------------------------------------------------------------*
+*
+******** PROCESSING SUCCESSFUL:
+*
+SUCCEXIT DS    0H
+         LA    R0,STT#PROC
+         BAL   R14,MODSET
+         B     FREE
+*
+******** EP NAME NOT FOUND:
+*
+NAMNOFND DS    0H
+         LA    R0,STT#NOFD
+         BAL   R14,MODSET
+         B     FREE
+*
+******** MAP LEN UNEXPECTED::
+*
+MAPLNUNX DS    0H
+         LA    R0,STT#MLEN
+         BAL   R14,MODSET
+         B     FREE
+*
+******** MAP BUFFER EXHAUST:
+*
+MAPBFEXH DS    0H
+         LA    R0,STT#MEXH
+         BAL   R14,MODSET
+         B     FREE
+*
+******** HEADER LEN .NE. 80:
+*
+HDRLNERR DS    0H
+         LA    R0,STT#HDLX
+         BAL   R14,MODSET
+         B     FREE
+*
+********* HEADER XA BITS INCONSISTENT:
+*
+HDRXAERR DS    0H
+         LA    R0,STT#XAIX
+         BAL   R14,MODSET
+         B     FREE
+         EJECT
+*---------------------------------------------------------------------*
+*        EXITS                                                        *
+*---------------------------------------------------------------------*
+*
+********* NO MAP ENTRIES:
+*
+HDRNOMAP DS    0H
+         LA    R0,STT#NOMA
+         BAL   R14,MODSET
+         B     FREE
+*
+******** MODULE RECFM NOT V:
+*
+MODRFERR DS    0H
+         LA    R0,STT#RFMX
+         BAL   R14,MODSET
+         B     FREE
+*
+******** MODULE MAP HAS NO NON-NULL ENTRIES:
+*
+MODNOESD DS    0H
+         LA    R0,STT#NESD
+         BAL   R14,MODSET
+         B     FREE
+*
+******** MODULE RCD CNT TOO SMALL FOR SIZE IMPLIED BY LEN, MAP ENTRIES:
+*
+MODSMALL DS    0H
+         LA    R0,STT#SMAL
+         BAL   R14,MODSET
+         B     FREE
+*
+******** MODULE LRECL > MAX:
+*
+MODLRERR DS    0H
+         LA    R0,STT#LRLX
+         BAL   R14,MODSET
+         B     FREE
+*
+******** MODULE STATE ERROR:
+*
+MODOPERR DS    0H
+         LA    R0,STT#OPNX
+         BAL   R14,MODSET
+         B     FREE
+         EJECT
+*---------------------------------------------------------------------*
+*        PLIST ERROR                                                  *
+*---------------------------------------------------------------------*
+*
+PLISTERR DS    0H
+         APPLMSG TEXT='&CSPX5.0001E PLIST COUNT (&&1) INVALID',        X
+               APPLID=&CSCN,                                           X
+               SUB=(DECA,PLISTCNT),                                    X
+               DISP=ERRMSG,                                            X
+               MF=(E,APPLMSGL)
+*
+         LA    R1,RCPAMERR         SET RC
+         BAL   R14,SETCODE         .
+         B     FREE                EXIT.
+         EJECT
+*---------------------------------------------------------------------*
+*        MAPCAP ERROR                                                 *
+*---------------------------------------------------------------------*
+*
+MAPCPERR DS    0H
+         APPLMSG TEXT='&CSPX5.0002E MAPCAP PARAM (&&1) INVALID',       X
+               APPLID=&CSCN,                                           X
+               SUB=(CHAR8A,(PLMAPCAP,L'PLMAPCAP)),                     X
+               DISP=ERRMSG,                                            X
+               MF=(E,APPLMSGL)
+*
+         LA    R1,RCPAMERR         SET RC
+         BAL   R14,SETCODE         .
+         B     FREE                EXIT.
+         EJECT
+*---------------------------------------------------------------------*
+*        OPN-1 PARAM ERROR                                            *
+*---------------------------------------------------------------------*
+*
+OPN1ERR  DS    0H
+         APPLMSG TEXT='&CSPX5.0003E OPN-1 PARAM (&&1) INVALID',        X
+               APPLID=&CSCN,                                           X
+               SUB=(CHAR8A,(PLOPN1,L'PLOPN1)),                         X
+               DISP=ERRMSG,                                            X
+               MF=(E,APPLMSGL)
+*
+         LA    R1,RCPAMERR         SET RC
+         BAL   R14,SETCODE         .
+         B     FREE                EXIT.
+         EJECT
+*---------------------------------------------------------------------*
+*        STORAGE REQUEST NOT HONORED                                  *
+*---------------------------------------------------------------------*
+*
+STORERR  DS    0H
+         LR    R2,R0               GET AMT NOT AVAIL
+         MH    R2,=H'8'
+*
+         APPLMSG TEXT='&CSPX5.0004E WORKING STORAGE (&&1) UNAVAILABLE',X
+               SUB=(HEX,(R2)),                                         X
+               APPLID=&CSCN,                                           X
+               DISP=ERRMSG
+*
+         LA    R15,RCSTOERR        SET DIRECTLY.
+         B     RETURN              EXIT.
+         EJECT
+*---------------------------------------------------------------------*
+*        TERMINATION                                                  *
+*                                                                     *
+*        -FREE BUFFER                                                 *
+*---------------------------------------------------------------------*
+*
+FREE     DS    0H
+*
+******** CLOSE MODULE FILE IF OPEN:
+*
+         TM    PROC1,PROC1MIP
+         BZ    FREE2
+         BAL   R14,MODCLS
+*
+******** FREE BUFFER IF ALLOCATED:
+*
+FREE2    EQU   *
+         ICM   R2,15,CUMBUFAD
+         BZ    FREEWS
+         L     R0,CUMBUFDW
+*
+         CMSSTOR RELEASE,DWORDS=(R0),ADDR=(R2),ERROR=ABEND2
+         EJECT
+*---------------------------------------------------------------------*
+*        TERMINATION                                                  *
+*                                                                     *
+*        -FREE WORKING STORAGE AND RETURN                             *
+*---------------------------------------------------------------------*
+*
+FREEWS   EQU   *
+         L     R2,RETURNC          GET RETURN CODE BEFORE FREE
+         L     R13,4(,R13)         UNCHAIN SAVE AREA " "
+*
+         LA    R0,WSLEN/8          FREE W/S
+*
+         CMSSTOR RELEASE,DWORDS=(0),ADDR=(RWS),ERROR=ABEND1
+*
+         LR    R15,R2              EXIT
+*
+RETURN   EQU   *
+         FBRET10
+         EJECT
+*---------------------------------------------------------------------*
+*        ABENDS                                                       *
+*---------------------------------------------------------------------*
+*
+ABEND1   DS    0H                  CMSSTOR.RELEASE FAILED FOR W/S
+         LA    R2,1
+         B     ABENDX
+*
+ABEND2   DS    0H                  CMSSTOR.RELEASE FAILED FOR BUFFER
+         LA    R2,2
+         B     ABENDX
+*
+ABEND3   DS    0H                  SAVE STACK EXHAUST
+         LA    R2,3
+         B     ABENDX
+*
+ABENDX   DS    0H
+         DMSABN (R2)
+         EJECT
+*---------------------------------------------------------------------*
+*        SET HIGHEST RETURN CODE PASSED                               *
+*---------------------------------------------------------------------*
+*
+SETCODE  FBSBI10
+         C     R1,RETURNC          KEEP HIGHER R/C PASSED
+         BNH   SETRCODX            .
+         ST    R1,RETURNC          .
+*
+SETRCODX EQU   *
+         FBSBX10                     .
+         EJECT
+*---------------------------------------------------------------------*
+*        ESDGEN: GENERATE LIST OF ESD ENTRIES                         *
+*                                                                     *
+*        (O) R15: # OF ENTRIES IN TABLE                               *
+*                                                                     *
+*        GO THROUGH ESD LIST MAKING 1ST DETERMINATION OF TYPE (CLAS1) *
+*        (NO CHECKING FOR ESD OVERFLOW SINCE SAME SIZE AS MAP TABLE)  *
+*---------------------------------------------------------------------*
+*
+ESDGEN   FBSBI10
+*
+         L     R2,MAPBUFAD
+         L     R0,MAPENTLN
+         L     R1,MAPBUFHI
+         SR    R1,R0
+         STM   R0,R1,MAPBXLES
+         MVC   ESDBUFHI,ESDBUFAD
+*
+ESDGEN2  EQU   *
+         NC    0(8,R2),0(R2)
+         BZ    ESDGEN4
+         TM    OPN1,OPN1IGN
+         BZ    ESDGEN2B
+         CLC   0(8,R2),=CL8'NUCON'
+         BE    ESDGEN4
+         CLC   0(8,R2),=CL8'SYSREF'
+         BE    ESDGEN4
+*
+******** PREPARE NEXT ENTRY IN ESD TABLE:
+*
+ESDGEN2B EQU   *
+         L     R14,ESDBUFHI
+         LA    R1,ESDENTRL(,R14)
+         ST    R1,ESDBUFHI
+         XC    0(ESDENTRL,R14),0(R14)
+*
+******** TAKE XA OR 370 PATH:
+*
+         NC    MODXAIND,MODXAIND
+         BNZ   ESDGEN3X
+         EJECT
+*---------------------------------------------------------------------*
+*        ESDGEN: GENERATE LIST OF ESD ENTRIES                         *
+*                                                                     *
+*        GO THROUGH ESD LIST MAKING 1ST DETERMINATION OF TYPE (CLAS1) *
+*---------------------------------------------------------------------*
+*
+******** 370 DETERMINATION:
+*
+ESDGEN3N EQU   *
+         MVC   ESDSYMBL-ESDENTRY(L'ESDSYMBL,R14),0(R2)
+         XR    R0,R0
+         ICM   R0,7,13(R2)
+         ST    R0,ESDSYMAD-ESDENTRY(,R14)
+         ICM   R0,7,09(R2)
+         ST    R0,ESDREFAD-ESDENTRY(,R14)
+         TM    ESDSYMAD+L'ESDSYMAD-1-ESDENTRY(R14),7
+         BNZ   ESDGENI7
+         CLI   ESDSYMBL-ESDENTRY(R14),C'.'
+         BE    ESDGENI1
+         TM    16(R2),2
+         BO    ESDGENI3
+         NC    ESDREFAD-ESDENTRY(L'ESDREFAD,R14),ESDREFAD-ESDENTRY(R14)
+         BNZ   ESDGENI6
+         B     ESDGENI8
+*
+*
+******** XA DETERMINATION:
+*
+ESDGEN3X DS    0H
+         MVC   ESDSYMBL-ESDENTRY(L'ESDSYMBL,R14),0(R2)
+         MVC   ESDSYMAD-ESDENTRY(L'ESDSYMAD,R14),12(R2)
+         NC    ESDSYMAD-ESDENTRY(L'ESDSYMAD,R14),=XL4'7FFFFFFF'
+         L     R0,20(,R2)
+         N     R0,=XL4'7FFFFFFF'
+         XR    R1,R1
+         ICM   R1,7,9(R2)
+         AR    R0,R1
+         ST    R0,ESDREFAD-ESDENTRY(,R14)
+         TM    ESDSYMAD+L'ESDSYMAD-1-ESDENTRY(R14),7
+         BNZ   ESDGENI7
+         CLI   ESDSYMBL-ESDENTRY(R14),C'.'
+         BE    ESDGENI1
+         TM    8(R2),X'40'
+         BO    ESDGENI2
+         TM    16(R2),X'02'
+         BO    ESDGENI3
+         CLC   ESDREFAD-ESDENTRY(L'ESDREFAD,R14),=XL4'20000'
+         BL    ESDGENI6
+         B     ESDGENI8
+         EJECT
+*---------------------------------------------------------------------*
+*        ESDGEN: GENERATE LIST OF ESD ENTRIES                         *
+*                                                                     *
+*        ASSIGN 'CLAS1' (CONTINUED)                                   *
+*---------------------------------------------------------------------*
+*
+*
+******** 370/XA: PRIVATE CODE:
+*
+ESDGENI1 DS    0H
+         MVI   ESDCLAS1-ESDENTRY(R14),1
+         B     ESDGEN4
+*
+*
+******** XA: 0-LEN CSECT BIT ON:
+*
+ESDGENI2 DS    0H
+         MVI   ESDCLAS1-ESDENTRY(R14),2
+         B     ESDGEN4
+*
+*
+******** 370/XA: SD BIT ON:
+*
+ESDGENI3 DS    0H
+         MVI   ESDCLAS1-ESDENTRY(R14),3
+         B     ESDGEN4
+*
+*
+******** 370: REF ADDR ^= 0
+******** XA:  REF ADDR <  X'20000'
+*
+ESDGENI6 DS    0H
+         MVI   ESDCLAS1-ESDENTRY(R14),6
+         B     ESDGEN4
+*
+*
+******** 370/XA: SYM ADDR//8 ^= 0
+*
+ESDGENI7 DS    0H
+         MVI   ESDCLAS1-ESDENTRY(R14),7
+         B     ESDGEN4
+*
+*
+******** 370/XA: NONE OF THE ABOVE:
+*
+ESDGENI8 DS    0H
+         MVI   ESDCLAS1-ESDENTRY(R14),8
+         B     ESDGEN4
+*
+ESDGEN4  DS    0H
+         LM    R0,R1,MAPBXLES
+         BXLE  R2,R0,ESDGEN2
+         EJECT
+*---------------------------------------------------------------------*
+*        ESDGEN: GENERATE LIST OF ESD ENTRIES                         *
+*                                                                     *
+*        SORT ENTRIES BY ADDRESS, CLAS1, AND SYMBOL NAME              *
+*---------------------------------------------------------------------*
+*
+         L     R15,ESDBUFHI
+         S     R15,ESDBUFAD
+         BZ    ESDGENX
+         XR    R14,R14
+         D     R14,=A(ESDENTRL)
+         L     R2,ESDBUFAD
+*
+         FBSHL10 NLOC=(R2),                                            X
+               NCNT=(R15),                                             X
+               SFDA=SFD,                                               X
+               NLEN=ESDENTRL,                                          X
+               OPNS=(A),                                               X
+               CB=SHLCB
+*
+         B     ESDGEN5A
+         EJECT
+*---------------------------------------------------------------------*
+*        ESDGEN: GENERATE LIST OF ESD ENTRIES                         *
+*                                                                     *
+*        SORT FIELD DESCRIPTORS                                       *
+*---------------------------------------------------------------------*
+*
+SFD      FBSFD10 ESDSYMAD-ESDENTRY,L'ESDSYMAD,C,A,NEXT=SFD2
+*
+SFD2     FBSFD10 ESDCLAS1-ESDENTRY,L'ESDCLAS1,C,A,NEXT=SFD3
+*
+SFD3     FBSFD10 ESDSYMBL-ESDENTRY,L'ESDSYMBL,C,A
+         EJECT
+*---------------------------------------------------------------------*
+*        ESDGEN: GENERATE LIST OF ESD ENTRIES                         *
+*                                                                     *
+*        GO THROUGH ESD LIST RECLASSIFYING (CLAS2) ENTRIES BASED      *
+*        ON PRELIMINARY GUESS (CLAS1) AND NEW POSITION IN LIST        *
+*---------------------------------------------------------------------*
+*
+ESDGEN5A DS    0H
+         L     R2,ESDBUFAD
+         LA    R0,ESDENTRL
+         L     R1,ESDBUFHI
+         SR    R1,R0
+         XC    LASREFAD,LASREFAD
+         XC    LASCLAS1,LASCLAS1
+*
+ESDGEN5B EQU   *
+         MVC   ESDCLAS2-ESDENTRY(L'ESDCLAS2,R2),ESDCLAS1-ESDENTRY(R2)
+         CLI   ESDCLAS1-ESDENTRY(R2),8
+         BNE   ESDGEN8
+         CLI   LASCLAS1,2
+         BE    ESDGEN7
+         CLC   ESDREFAD-ESDENTRY(L'ESDREFAD,R2),LASREFAD
+         BNH   ESDGEN8
+         CR    R2,R1
+         BE    ESDGEN6
+         CLC   ESDREFAD-ESDENTRY+ESDENTRL(L'ESDREFAD,R2),ESDREFAD-ESDENX
+               TRY(R2)
+         BL    ESDGEN8
+*
+ESDGEN6  EQU   *
+         MVI   ESDCLAS2-ESDENTRY(R2),4
+         B     ESDGEN8
+*
+ESDGEN7  DS    0H
+         MVI   ESDCLAS2-ESDENTRY(R2),5
+         B     ESDGEN8
+*
+ESDGEN8  DS    0H
+         MVC   ESDSYMID-ESDENTRY(L'ESDSYMID,R2),ESDCLAS2-ESDENTRY(R2)
+*                                                - S S S S S C L L
+         TR    ESDSYMID-ESDENTRY(L'ESDSYMID,R2),=AL1(0,2,2,2,2,2,0,1,1)
+         MVC   LASCLAS1,ESDCLAS1-ESDENTRY(R2)
+         MVC   LASREFAD,ESDREFAD-ESDENTRY(R2)
+         BXLE  R2,R0,ESDGEN5B
+         EJECT
+*---------------------------------------------------------------------*
+*        ESDGEN: GENERATE LIST OF ESD ENTRIES                         *
+*                                                                     *
+*        GO THROUGH ESD LIST ASSIGNING LENGTH TO NON-LD'S             *
+*        RETURN, PASSING ESD COUNT                                    *
+*---------------------------------------------------------------------*
+*
+         L     R2,ESDBUFAD
+*
+ESDGEN9  EQU   *
+         CLI   ESDSYMID-ESDENTRY(R2),ESDSYMLD
+         BE    ESDGEN10
+         MVC   ESDSDNXT,OLDMODTO
+         CR    R2,R1
+         BE    ESDGEN9C
+         LA    R14,ESDENTRL(,R2)
+*
+ESDGEN9A EQU   *
+         CLI   ESDSYMID-ESDENTRY(R14),ESDSYMLD
+         BNE   ESDGEN9B
+         BXLE  R14,R0,ESDGEN9A
+         B     ESDGEN9C
+*
+ESDGEN9B DS    0H
+         MVC   ESDSDNXT,ESDSYMAD-ESDENTRY(R14)
+*
+ESDGEN9C DS    0H
+         L     R15,ESDSDNXT
+         S     R15,ESDSYMAD-ESDENTRY(,R2)
+         ST    R15,ESDSECLN-ESDENTRY(,R2)
+*
+ESDGEN10 EQU   *
+         BXLE  R2,R0,ESDGEN9
+*
+         L     R15,ESDBUFHI
+         S     R15,ESDBUFAD
+         XR    R14,R14
+         D     R14,=A(ESDENTRL)
+         B     ESDGENX
+*
+ESDGENX  DS    0H
+         FBSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        BUFGEN: ALLOCATE TEXT AND MAP BUFFERS                        *
+*                                                                     *
+*        (O) R15: 0---OK                                              *
+*                 4---ERROR                                           *
+*---------------------------------------------------------------------*
+*
+BUFGEN   FBSBI10
+*
+******** GET MODULE BUFFER LEN:
+*
+         L     R0,OLDLRECL
+         AH    R0,=H'7'
+         SRL   R0,3
+         SLL   R0,3
+         ST    R0,FILBUFLN
+*
+******** FILL IN BUFFER LENGTHS FOR I/O, MAP, AND ESD TABLE:
+*
+         L     R0,MAPENTMX
+         MH    R0,=Y(24)
+         ST    R0,MAPBUFLN
+         L     R0,MAPENTMX
+         MH    R0,=Y(ESDENTRL)
+         ST    R0,ESDBUFLN
+*
+******** ADD UP REQUIREMENTS, GET STORAGE:
+*
+         L     R0,FILBUFLN
+         A     R0,MAPBUFLN
+         A     R0,ESDBUFLN
+         A     R0,=F'7'
+         SRL   R0,3
+         ST    R0,CUMBUFDW
+         EJECT
+*---------------------------------------------------------------------*
+*        BUFGEN: ALLOCATE TEXT AND MAP BUFFERS                        *
+*                                                                     *
+*        ISSUE CMSSTOR AND BUILD PTRS                                 *
+*---------------------------------------------------------------------*
+*
+         CMSSTOR OBTAIN,                                               X
+               DWORDS=(0),                                             X
+               ERROR=BUFGENE1
+*
+******** BUILD BUFFER POINTERS:
+*
+         LA    R1,0(,R1)
+         ST    R1,CUMBUFAD
+         ST    R1,FILBUFAD
+         A     R1,FILBUFLN
+         ST    R1,MAPBUFAD
+         A     R1,MAPBUFLN
+         ST    R1,ESDBUFAD
+         XR    R15,R15
+         B     BUFGENX
+         EJECT
+*---------------------------------------------------------------------*
+*        BUFGEN: ALLOCATE TEXT AND MAP BUFFERS                        *
+*                                                                     *
+*        ERROR PROCESSING / EXIT                                      *
+*---------------------------------------------------------------------*
+*
+BUFGENE1 DS    0H
+         APPLMSG TEXT='&CSPX5.0005E BUFFER REQ (&&1 DW) NOT HONORED',  X
+               SUB=(HEX,(R0)),                                         X
+               APPLID=&CSCN,                                           X
+               DISP=ERRMSG,                                            X
+               MF=(E,APPLMSGL)
+*
+         LA    R1,RCSTOERR
+         BAL   R14,SETCODE
+         LA    R15,4
+         B     BUFGENX
+*
+BUFGENX  DS    0H
+         FBSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        FSERROR: DISPLAY FILE SYSTEM ERROR                           *
+*                                                                     *
+*        (I) R0:  F/S RETURN CODE                                     *
+*            R1:  FSCB PTR                                            *
+*---------------------------------------------------------------------*
+*
+FSERROR  FBSBI10
+*
+         LR    R2,R0               SAVE RC
+         LR    R14,R1              SAVE FSCB PTR
+*
+         APPLMSG TEXT='&CSPX5.0006E ERROR (&&1) ON (&&2) FOR (&&3)',   X
+               SUB=(DEC,(R2),                                          X
+               CHAR8A,(FSCBCOMM-FSCBD(R14),8),                         X
+               CHAR8A,(FSCBFN-FSCBD(R14),18)),                         X
+               APPLID=&CSCN,                                           X
+               DISP=ERRMSG,                                            X
+               MF=(E,APPLMSGL)
+         EJECT
+*---------------------------------------------------------------------*
+*        FSERROR: DISPLAY FILE SYSTEM ERROR                           *
+*---------------------------------------------------------------------*
+*
+         LA    R1,RCFILERR         SET RC
+         BAL   R14,SETCODE         .
+*
+         FBSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        EDIT NUMERIC STRING                                          *
+*---------------------------------------------------------------------*
+*
+EDITNO   FBSBI10
+         CVD   R0,DW               EDIT NUMERIC FIELD
+         LR    R2,R1               SAVE START ADDR
+         MVC   WORK12,=XL12'402020202020202020202120'
+         LA    R1,WORK12+L'WORK12-1
+         EDMK  WORK12,DW+2         .
+         BNM   EDITNO1             .
+         BCTR  R1,0                (-)
+         MVI   0(R1),C'-'          .
+*
+EDITNO1  EQU   *
+         LA    R15,WORK12+L'WORK12-1
+         SLR   R15,R1              .
+         EX    R15,EDITNOMV        BUILD NUMBER
+         LA    R15,1(R2,R15)       NEXT LOCATION
+         FBSBX10 PASS=R15            RETURN.
+*
+EDITNOMV MVC   0(0,R2),0(R1)       MOVE VAR LEN FIELD
+         EJECT
+*---------------------------------------------------------------------*
+*        ENCNUM: ENCODE NUMERIC STRING                                *
+*                                                                     *
+*        (I) R0:  SOURCE TOKEN (8 CHAR)                               *
+*            R1:  DEST FULLWORD                                       *
+*        (O) R15: 0....VALID                                          *
+*                 4....INVALID                                        *
+*---------------------------------------------------------------------*
+*
+ENCNUM   FBSBI10
+         LR    R15,R0
+         LA    R1,8(,R15)
+         TRT   0(8,R15),BLANK
+         LR    R14,R1
+         SR    R14,R15
+         BZ    ENCNUMER
+         CLI   0(R15),C'+'
+         BE    ENCNUM2
+         CLI   0(R15),C'-'
+         BNE   ENCNUM3
+*
+ENCNUM2  EQU   *
+         SH    R14,=H'1'
+         BNP   ENCNUMER
+         LA    R15,1(,R15)
+*
+ENCNUM3  EQU   *
+         BCTR  R14,0
+         EX    R14,ENCNUMI1
+         BNZ   ENCNUMER
+         EX    R14,ENCNUMI2
+         CVB   R15,DW
+         FBSBR10 R0,R1
+         LR    R2,R0
+         CLI   0(R2),C'-'
+         BNE   ENCNUM4
+         LNR   R15,R15
+*
+ENCNUM4  EQU   *
+         ST    R15,0(,R1)
+         XR    R15,R15
+         B     ENCNUMX
+         EJECT
+*---------------------------------------------------------------------*
+*        ENCNUM: ENCODE NUMERIC STRING                                *
+*---------------------------------------------------------------------*
+*
+ENCNUMER DS    0H
+         LA    R15,4
+*
+ENCNUMX  EQU   *
+         FBSBX10 PASS=CC
+*
+ENCNUMI1 TRT   0(0,R15),NUMBERS
+ENCNUMI2 PACK  DW,0(0,R15)
+         EJECT
+*---------------------------------------------------------------------*
+*        MODOPN: OPEN (FSSTATE) MODULE FILE                           *
+*                                                                     *
+*        (I) R1:  MODULE FILEID                                       *
+*        (O) R15: 0...FILE FOUND                                      *
+*                 4...ERROR                                           *
+*---------------------------------------------------------------------*
+*
+MODOPN   FBSBI10
+*
+         MVC   FSCBFN-FSCBD+FSCBMOD,0(R1)
+         MVC   FSCBFT-FSCBD+FSCBMOD,8(R1)
+         MVC   FSCBFM-FSCBD+FSCBMOD,16(R1)
+*
+         FSSTATE FSCB=FSCBMOD,FORM=E
+*
+         LTR   R15,R15
+         BNZ   MODOPNX
+         MVC   FSCBFM-FSCBD+FSCBMOD,FSTFMODE-FSTD(R1)
+         MVC   FSCBFV-FSCBD+FSCBMOD,FSTRECFM-FSTD(R1)
+         MVC   FSCBANIT-FSCBD+FSCBMOD,=F'1'
+         MVO   DW,FSTADATI-FSTD(L'FSTADATI,R1)
+         OI    DW+L'DW-1,15
+         UNPK  MODSTAMP,DW
+         MVC   OLDMODRC,FSTAIC-FSTD(R1)
+         MVC   OLDLRECL,FSTLRECL-FSTD(R1)
+         XR    R15,R15
+         B     MODOPNX
+         EJECT
+*---------------------------------------------------------------------*
+*        MODOPN: OPEN (FSSTATE) MODULE FILE                           *
+*---------------------------------------------------------------------*
+*
+MODOPNX  DS    0H
+         FBSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        MODGET: READ REC FROM MODULE FILE                            *
+*                                                                     *
+*        (I) R0:   RECORD NO.                                         *
+*        (O) R15:  0...ERROR                                          *
+*                  +...BYTES READ (SUCCESS)                           *
+*---------------------------------------------------------------------*
+*
+MODGET   FBSBI10
+*
+         ST    R0,FSCBAITN-FSCBD+FSCBMOD
+         MVC   FSCBBUFF-FSCBD+FSCBMOD,FILBUFAD
+         MVC   FSCBSIZE-FSCBD+FSCBMOD,FILBUFLN
+*
+         FSREAD FSCB=FSCBMOD,FORM=E
+*
+         OI    PROC1,PROC1MIP
+         LTR   R15,R15
+         BNZ   MODGETE1
+         LR    R15,R0
+         B     MODGETX
+*
+******** I/O ERROR:
+*
+MODGETE1 DS    0H
+         LR    R0,R15
+         LA    R1,FSCBMOD
+         BAL   R14,FSERROR
+         XR    R15,R15
+         B     MODGETX
+*
+******** EXIT:
+*
+MODGETX  DS    0H
+         FBSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        MODCLS: CLOSE INPUT MODULE FSCB                              *
+*                                                                     *
+*        (O) R15: 0---OK                                              *
+*                 4---ERROR                                           *
+*---------------------------------------------------------------------*
+*
+MODCLS   FBSBI10
+*
+         LA    R1,FSCBMOD
+         BAL   R14,CLOSE
+         BZ    MODCLSX
+         LR    R0,R15
+         BAL   R14,FSERROR
+         LA    R15,4
+*
+MODCLSX  EQU   *
+         FBSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        CLOSE: CLOSE FSCB                                            *
+*                                                                     *
+*        (I) R1:  FSCB PTR                                            *
+*---------------------------------------------------------------------*
+*
+CLOSE    FBSBI10
+*
+         FSCLOSE FSCB=(1)
+*
+         FBSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        MODSET:  SET MOD INFO STEM VARIABLES                         *
+*                                                                     *
+*        (I) R0:  STATUS CODE (1ST WORD OF VAR.1)                     *
+*        (O) R15: O...OK                                              *
+*                 4...ERROR                                           *
+*---------------------------------------------------------------------*
+*
+MODSET   FBSBI10
+*
+******** COMPLETE INFO.1 DATA AND DESCRIPTOR:
+*
+         ST    R0,MODSTATU
+         LA    R2,INFOFLDS
+         LA    R15,STTFREEA
+*
+******** BUILD NUMBERS IN INFO.1 FREE AREA:
+*
+MODSET1  EQU   *
+         LH    R1,0(,R2)
+         LA    R1,WS(R1)
+         L     R0,0(,R1)
+         LR    R1,R15
+         BAL   R14,EDITNO
+         LA    R15,1(,R15)
+         LA    R2,L'INFOFLDS(,R2)
+         C     R2,=A(INFOFLDX)
+         BL    MODSET1
+*
+         LA    R0,STTBUF
+         ST    R0,VDSVALAD-VDSSECT+MODVARDS+1*VDSSECL
+         SR    R15,R0
+         BCTR  R15,0
+         ST    R15,VDSVALLN-VDSSECT+MODVARDS+1*VDSSECL
+*
+******** COMPLETE INFO.0 DATA AND DESCRIPTOR:
+*
+         LA    R0,L'MODVARDS/VDSSECL-1
+         LA    R1,CHRIDX
+         BAL   R14,EDITNO
+         SR    R15,R1
+         ST    R15,VDSVALLN-VDSSECT+MODVARDS+0*VDSSECL
+         ST    R1,VDSVALAD-VDSSECT+MODVARDS+0*VDSSECL
+         EJECT
+*---------------------------------------------------------------------*
+*        MODSET:  SET MOD INFO STEM VARIABLES                         *
+*---------------------------------------------------------------------*
+*
+         LA    R2,MODVARDS
+*
+MODSET2  EQU   *
+         L     R0,VDSVALLN-VDSSECT(,R2)
+         ST    R0,XSHVSHVB-XSHVSECT+SHVVALL-SHVBLOCK+MODSHVBL
+         L     R0,VDSVALAD-VDSSECT(,R2)
+         ST    R0,XSHVSHVB-XSHVSECT+SHVVALA-SHVBLOCK+MODSHVBL
+         LA    R1,MODVARBL
+         BAL   R14,SHVSET
+         BNZ   MODSETX
+*
+         LA    R2,VDSSECL(,R2)
+         LA    R0,MODVARDS+L'MODVARDS
+         CR    R2,R0
+         BL    MODSET2
+         XR    R15,R15
+*
+MODSETX  EQU   *
+         FBSBX10 PASS=CC
+*
+INFOFLDS DS    0Y
+         DC    Y(MODSTATU-WS)
+         DC    Y(OLDSTATE-WS)
+         DC    Y(OLDLRECL-WS)
+         DC    Y(MODHDRLN-WS)
+         DC    Y(MODXAFLG-WS)
+         DC    Y(MODXAIND-WS)
+         DC    Y(MAPENTLN-WS)
+         DC    Y(OLDMAPEC-WS)
+         DC    Y(OLDMAPRD-WS)
+         DC    Y(OLDMODFR-WS)
+         DC    Y(OLDMODTO-WS)
+         DC    Y(OLDMODRC-WS)
+         DC    Y(MINMODRC-WS)
+         DC    Y(ESDCOUNT-WS)
+         DC    Y(ESDTARGT-WS)
+INFOFLDX EQU   *
+         EJECT
+*---------------------------------------------------------------------*
+*        SHVSET: SET VARIABLE                                         *
+*                                                                     *
+*        (I) R1:  VARSECT                                             *
+*        (0) R15: 0.......OK                                          *
+*                 OTHER...ERROR                                       *
+*---------------------------------------------------------------------*
+*
+SHVSET   FBSBI10
+*
+******** SET UP SHVBLOCK:
+*
+         L     R2,VARSHVAD-VARSECT(,R1)
+*
+******** ADD INDEX TO ALL VARIABLES:
+*
+SHVSET2  EQU   *
+         L     R0,VARSTEMV-VARSECT(,R1)
+         LA    R14,XSHVVARN-XSHVSECT(,R2)
+         A     R14,VARPFXLN-VARSECT(,R1)
+         A     R14,VARSFXLN-VARSECT(,R1)
+         LA    R1,1(,R14)
+         BAL   R14,EDITNO
+         LA    R0,XSHVVARN-XSHVSECT(,R2)
+         SR    R15,R0
+         ST    R15,XSHVSHVB-XSHVSECT+SHVNAML-SHVBLOCK(,R2)
+         LA    R2,XSHVSECL(,R2)
+         FBSBR10 R1
+         C     R2,VARSHVHI-VARSECT(,R1)
+         BL    SHVSET2
+         EJECT
+*---------------------------------------------------------------------*
+*        SHVSET: SET VARIABLE                                         *
+*                                                                     *
+*        COMPLETE PLISTS, CALL EXECCOMM                               *
+*---------------------------------------------------------------------*
+*
+         LA    R2,EXECCOMM
+         ST    R2,EPLIST
+         L     R1,VARSHVAD-VARSECT(,R1)
+         LA    R1,XSHVSHVB-XSHVSECT(,R1)
+         ST    R1,EPLIST+12
+*
+         LA    R0,EPLIST
+*
+         CMSCALL EPLIST=(0),                                           X
+               PLIST=(R2),                                             X
+               CALLTYP=SUBCOM
+*
+******** EXECCOMM RETURNS OR'D SHVRET BITS IN R15, WHEN (+),
+******** OR (-) ON FATAL CALL ERROR:
+*
+         FBSBR10 R1
+         ST    R15,VARSHVRC-VARSECT(,R1)
+         LTR   R15,R15
+         BM    SHVSETE1
+         EJECT
+*---------------------------------------------------------------------*
+*        SHVSET: SET VARIABLE                                         *
+*---------------------------------------------------------------------*
+*
+         L     R2,VARSHVAD-VARSECT(,R1)
+*
+SHVSET3  EQU   *
+         BAL   R14,SHVCHK
+         LA    R2,XSHVSECL(,R2)
+         C     R2,VARSHVHI-VARSECT(,R1)
+         BL    SHVSET3
+*
+******** CHECK FOR ERROR:
+*
+         L     R15,VARSHVRC-VARSECT(,R1)
+         N     R15,=A(SHVBADN+SHVBADF+SHVBADV)
+         BNZ   SHVSETX
+*
+******** NONE, SET UP NEXT INDEX:
+*
+         LA    R15,1
+         A     R15,VARSTEMV-VARSECT(,R1)
+         ST    R15,VARSTEMV-VARSECT(,R1)
+         XR    R15,R15
+         B     SHVSETX
+*
+EXECCOMM DC    CL8'EXECCOMM'
+         DC    8X'FF'
+         EJECT
+*---------------------------------------------------------------------*
+*        SHVSET: SET VARIABLE                                         *
+*---------------------------------------------------------------------*
+*
+SHVSETE1 DS    0H
+*
+         LR    R2,R15
+*
+         APPLMSG TEXT='&CSPX5.0007E EXECCOMM ERROR (&&1)',             X
+               APPLID=&CSCN,                                           X
+               SUB=(DEC,(R2)),                                         X
+               DISP=ERRMSG,                                            X
+               MF=(E,APPLMSGL)
+*
+         LA    R1,RCXCMERR
+         BAL   R14,SETCODE
+         LA    R15,4
+         B     SHVSETX
+*
+SHVSETX  DS    0H
+         FBSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        SHVCHK: SET VARIABLE                                         *
+*                                                                     *
+*        (I) R2:  XSHVSECT                                            *
+*---------------------------------------------------------------------*
+*
+SHVCHK   FBSBI10
+*
+         XR    R0,R0
+         IC    R0,XSHVSHVB-XSHVSECT+SHVRET-SHVBLOCK(,R2)
+         N     R0,=A(SHVBADN+SHVBADF+SHVBADV)
+         BZ    SHVCHKX
+*
+         L     R14,XSHVSHVB-XSHVSECT+SHVNAMA-SHVBLOCK(,R2)
+         L     R2,XSHVSHVB-XSHVSECT+SHVNAML-SHVBLOCK(,R2)
+*
+         APPLMSG TEXT='&CSPX5.0008E EXECCOMM FLAG(&&1) VAR(&&2)',      X
+               APPLID=&CSCN,                                           X
+               SUB=(HEX,((R0),2),CHARA,((R14),(R2))),                  X
+               DISP=ERRMSG,                                            X
+               MF=(E,APPLMSGL)
+         EJECT
+*---------------------------------------------------------------------*
+*        SHVCHK: SET VARIABLE                                         *
+*---------------------------------------------------------------------*
+*
+         LA    R1,RCXCMERR
+         BAL   R14,SETCODE
+*
+SHVCHKX  EQU   *
+         FBSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        VARPREP: BUILD STATIC FIELDS IN XSHVSECT, INCLUDING:         *
+*                                                                     *
+*        -ROOT OF STEM VARIABLE, UP TO '.'                            *
+*        -SHVNAMA, SHVCODE, SHVNEXT                                   *
+*                                                                     *
+*        (I) R1:  VARSECT BLOCK                                       *
+*---------------------------------------------------------------------*
+*
+VARPREP  FBSBI10
+*
+         L     R2,VARSHVAD-VARSECT(,R1)
+         L     R14,VARSFXAD-VARSECT(,R1)
+*
+VARPREP2 EQU   *
+         L     R15,VARPFXAD-VARSECT(,R1)
+         MVC   XSHVVARN-XSHVSECT(8,R2),0(R15)
+         LA    R15,XSHVVARN-XSHVSECT(,R2)
+         A     R15,VARPFXLN-VARSECT(,R1)
+         L     R1,VARSFXLN-VARSECT(,R1)
+         LTR   R1,R1
+         BZ    VARPREP3
+         BCTR  R1,0
+         EX    R1,VARPREPM
+         LA    R15,1(R15,R1)
+*
+VARPREP3 EQU   *
+         FBSBR10 R1
+         MVI   0(R15),C'.'
+*
+******** BUILD PREDICTABLE SHVBLOCK FIELDS:
+*
+         LA    R15,XSHVVARN-XSHVSECT(,R2)
+         ST    R15,SHVNAMA-SHVBLOCK+XSHVSHVB-XSHVSECT(,R2)
+         LA    R15,XSHVSHVB-XSHVSECT+XSHVSECL(,R2)
+         ST    R15,SHVNEXT-SHVBLOCK+XSHVSHVB-XSHVSECT(,R2)
+         MVI   SHVCODE-SHVBLOCK+XSHVSHVB-XSHVSECT(R2),SHVSTORE
+*
+******** NEXT XSHVSECT:
+*
+         A     R14,VARSFXLN-VARSECT(,R1)
+         LA    R2,XSHVSECL(,R2)
+         C     R2,VARSHVHI-VARSECT(,R1)
+         BL    VARPREP2
+         EJECT
+*---------------------------------------------------------------------*
+*        VARPREP: BUILD STATIC FIELDS IN XSHVSECT, INCLUDING:         *
+*---------------------------------------------------------------------*
+*
+******** CLEAR LAST FORE PTR:
+*
+         S     R2,=A(XSHVSECL)
+         XC    SHVNEXT-SHVBLOCK+XSHVSHVB-XSHVSECT(L'SHVNEXT,R2),SHVNEXTX
+               -SHVBLOCK+XSHVSHVB-XSHVSECT(R2)
+*
+         FBSBX10
+*
+VARPREPM MVC   0(0,R15),0(R14)
+         EJECT
+*---------------------------------------------------------------------*
+*        DCTWRT: WRITE DICTIONARY FILE                                *
+*---------------------------------------------------------------------*
+*
+DCTWRT   FBSBI10
+*
+         XR    R15,R15
+         TM    OPN1,OPN1DCT
+         BZ    DCTWRTX
+*
+         MVC   FSCBFN-FSCBD+FSCBDCT,PLCONFIG
+         MVC   FSCBFT-FSCBD+FSCBDCT,PLDCTFT
+         MVC   FSCBFM-FSCBD+FSCBDCT,PLDCTFM
+         MVI   FSCBFV-FSCBD+FSCBDCT,C'F'
+         MVC   FSCBANIT-FSCBD+FSCBDCT,=F'1'
+         MVC   FSCBSIZE-FSCBD+FSCBDCT,=A(DCTRECLN)
+         LA    R0,DCTREC
+         ST    R0,FSCBBUFF-FSCBD+FSCBDCT
+*
+         MVC   DCTOWNER,PLOWNER
+         MVC   DCTDEVNO,PLDEVNO
+         MVC   DCTSTAMP,MODSTAMP
+         MVC   DCTMODFN,FSCBFN-FSCBD+FSCBMOD
+         MVC   DCTMODFT,FSCBFT-FSCBD+FSCBMOD
+         MVC   DCTMODFM,FSCBFM-FSCBD+FSCBMOD
+         MVC   LASSECNM,=CL8'(SD?)'
+         XC    LASSECLN,LASSECLN
+*
+         L     R2,ESDBUFAD
+         LA    R0,ESDENTRL
+         L     R1,ESDBUFHI
+         SR    R1,R0
+         STM   R0,R1,ESDBXLES
+         EJECT
+*---------------------------------------------------------------------*
+*        DCTWRT: WRITE DICTIONARY FILE                                *
+*---------------------------------------------------------------------*
+*
+DCTWRT2  EQU   *
+         MVC   DCTSYMBL,ESDSYMBL-ESDENTRY(R2)
+         XR    R0,R0
+         IC    R0,ESDSYMID-ESDENTRY(,R2)
+         MH    R0,=H'2'
+         LA    R1,=C'CMLDSD'
+         AR    R1,R0
+         MVC   DCTSYMID,0(R1)
+         MVC   DCTCLAS1,ESDCLAS1-ESDENTRY(R2)
+         OI    DCTCLAS1,X'F0'
+         MVC   DCTCLAS2,ESDCLAS2-ESDENTRY(R2)
+         OI    DCTCLAS2,X'F0'
+         L     R0,ESDSYMAD-ESDENTRY(,R2)
+         CVD   R0,DW
+         MVC   WORK12,=XL12'402020202020202020202120'
+         ED    WORK12,DW+2
+         MVC   DCTSYMAD,WORK12+L'WORK12-L'DCTSYMAD
+*
+         XR    R15,R15
+         IC    R15,ESDSYMID-ESDENTRY(,R2)
+         SLL   R15,2
+         B     *+4(R15)
+         B     DCTWRTCM
+         B     DCTWRTLD
+         B     DCTWRTSD
+*
+DCTWRTCM DS    0H
+         MVC   DCTSECNM,DCTSYMBL
+         L     R0,ESDSECLN-ESDENTRY(,R2)
+         MVC   LASSECNM,=CL8'(CM?)'
+         XC    LASSECLN,LASSECLN
+         B     DCTWRT3
+*
+DCTWRTLD DS    0H
+         MVC   DCTSECNM,LASSECNM
+         L     R0,LASSECLN
+         B     DCTWRT3
+*
+DCTWRTSD DS    0H
+         MVC   DCTSECNM,DCTSYMBL
+         MVC   LASSECNM,DCTSYMBL
+         L     R0,ESDSECLN-ESDENTRY(,R2)
+         ST    R0,LASSECLN
+         B     DCTWRT3
+         EJECT
+*---------------------------------------------------------------------*
+*        DCTWRT: WRITE DICTIONARY FILE                                *
+*---------------------------------------------------------------------*
+*
+DCTWRT3  DS    0H
+         CVD   R0,DW
+         MVC   WORK12,=XL12'402020202020202020202120'
+         ED    WORK12,DW+2
+         MVC   DCTSECLN,WORK12+L'WORK12-L'DCTSECLN
+*
+         FSWRITE FSCB=FSCBDCT,FORM=E,ERROR=DCTWRTE1
+*
+         LM    R0,R1,ESDBXLES
+         BXLE  R2,R0,DCTWRT2
+         LA    R1,FSCBDCT
+         BAL   R14,CLOSE
+         BNZ   DCTWRTE1
+         B     DCTWRTX
+*
+DCTWRTE1 DS    0H
+         LR    R0,R15
+         BAL   R14,FSERROR
+         LA    R15,4
+         B     DCTWRTX
+*
+DCTWRTX  DS    0H
+         FBSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        FNDESD: LOOKUP ESD NAME                                      *
+*                                                                     *
+*        (O) R15: 0---IF 'F' OPTION AND NAME NOT FOUND                *
+*                 INDX OF MATCHING ESD ENTRY, IF 'F' AND NAME FOUND   *
+*                 INDX OF 1ST ESD ENTRY, IF NO 'F' OPTION             *
+*---------------------------------------------------------------------*
+*
+FNDESD   FBSBI10
+*
+         L     R15,ESDBUFAD
+         TM    OPN1,OPN1FND
+         BZ    FNDESD3
+*
+         LA    R0,ESDENTRL
+         L     R1,ESDBUFHI
+         SR    R1,R0
+*
+FNDESD2  EQU   *
+         CLC   0(8,R15),PLEPNAM
+         BE    FNDESD3
+         BXLE  R15,R0,FNDESD2
+         XR    R15,R15
+         B     FNDESDX
+*
+FNDESD3  DS    0H
+         XR    R14,R14
+         S     R15,ESDBUFAD
+         D     R14,=A(ESDENTRL)
+         LA    R15,1(,R15)
+*
+FNDESDX  EQU   *
+         FBSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        ESDSET: SET ESD STEM VARIABLES                               *
+*---------------------------------------------------------------------*
+*
+ESDSET   FBSBI10
+*
+         XR    R15,R15
+         TM    OPN1,OPN1ESD
+         BZ    ESDSETX
+*
+******** EDIT # ESD ENTRIES AS SUB(0) FOR ALL VARIABLES:
+*
+         XR    R0,R0
+         L     R1,ESDBUFHI
+         S     R1,ESDBUFAD
+         D     R0,=A(ESDENTRL)
+         LR    R0,R1
+         LA    R1,CHRIDX
+         LA    R2,ESDSHVBL+0*XSHVSECL
+         BAL   R14,SHVNUM
+         LA    R1,ESDVARBL
+         BAL   R14,SHVDUP
+         BAL   R14,SHVSET
+         BNZ   ESDSETX
+*
+         L     R15,ESDBUFAD
+         LA    R0,ESDENTRL
+         L     R1,ESDBUFHI
+         SR    R1,R0
+         EJECT
+*---------------------------------------------------------------------*
+*        ESDSET: SET ESD STEM VARIABLES                               *
+*---------------------------------------------------------------------*
+*
+ESDSET2  EQU   *
+         STM   R15,R1,ESDBXLES
+*
+         LA    R0,L'ESDSYMBL
+         LA    R1,ESDSYMBL-ESDENTRY(,R15)
+         LA    R2,ESDSHVBL+0*XSHVSECL
+         BAL   R14,SHVCHR
+*
+         XR    R0,R0
+         IC    R0,ESDSYMID-ESDENTRY(,R15)
+         LA    R1,CHRSYMID
+         LA    R2,ESDSHVBL+1*XSHVSECL
+         BAL   R14,SHVNUM
+*
+         L     R0,ESDSYMAD-ESDENTRY(,R15)
+         LA    R1,CHRSYMAD
+         LA    R2,ESDSHVBL+2*XSHVSECL
+         BAL   R14,SHVNUM
+*
+         L     R0,ESDSECLN-ESDENTRY(,R15)
+         LA    R1,CHRSECLN
+         LA    R2,ESDSHVBL+3*XSHVSECL
+         BAL   R14,SHVNUM
+*
+         LA    R1,ESDVARBL
+         BAL   R14,SHVSET
+         BNZ   ESDSETX
+*
+         LM    R15,R1,ESDBXLES
+         BXLE  R15,R0,ESDSET2
+         XR    R15,R15
+         B     ESDSETX
+*
+ESDSETX  DS    0H
+         FBSBX10 PASS=CC
+*
+ESDVARDF DS    0CL3
+         DC    CL3'NAM'
+         DC    CL3'TYP'
+         DC    CL3'LOC'
+         DC    CL3'LEN'
+ESDVARNO EQU   (*-ESDVARDF)/L'ESDVARDF
+         EJECT
+*---------------------------------------------------------------------*
+*        SHVDUP: COPY VAL PTRS FROM CURR XSHVSECT TO END              *
+*                                                                     *
+*        (I) R1:  VARSECT                                             *
+*            R2:  CURRENT XSHVSECT PTR                                *
+*---------------------------------------------------------------------*
+*
+SHVDUP   FBSBI10
+*
+SHVDUP2  EQU   *
+         LA    R14,XSHVSECL(,R2)
+         C     R14,VARSHVHI-VARSECT(,R1)
+         BNL   SHVDUPX
+         MVC   SHVVALL-SHVBLOCK+XSHVSHVB-XSHVSECT(L'SHVVALL,R14),SHVVALX
+               L-SHVBLOCK+XSHVSHVB-XSHVSECT(R2)
+         MVC   SHVVALA-SHVBLOCK+XSHVSHVB-XSHVSECT(L'SHVVALA,R14),SHVVALX
+               A-SHVBLOCK+XSHVSHVB-XSHVSECT(R2)
+         LR    R2,R14
+         B     SHVDUP2
+*
+SHVDUPX  DS    0H
+         FBSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        SHVNUM: BUILD NUMERIC STRING IN SHVBLOCK                     *
+*                                                                     *
+*        (I) R0:  NUMERIC VALUE                                       *
+*            R1:  EDIT DESTINATION                                    *
+*            R2:  XSHVSECT                                            *
+*---------------------------------------------------------------------*
+*
+SHVNUM   FBSBI10
+*
+         BAL   R14,EDITNO
+         SR    R15,R1
+         ST    R15,SHVVALL-SHVBLOCK+XSHVSHVB-XSHVSECT(,R2)
+         ST    R1,SHVVALA-SHVBLOCK+XSHVSHVB-XSHVSECT(,R2)
+*
+         FBSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        SHVTRM: BUILD STRING POINTERS IN SHVBLOCK, TRIMMING TRAIL-B  *
+*                                                                     *
+*        (NOT CURRENTLY USED BUT LEFT IN FOR FUTURE USE)              *
+*                                                                     *
+*        (I) R0:  STRING LEN                                          *
+*            R1:  STRING ADDR                                         *
+*            R2:  XSHVSECT                                            *
+*---------------------------------------------------------------------*
+*
+SHVTRM   FBSBI10
+*
+         LR    R15,R1
+         LR    R14,R0
+         BCTR  R14,0
+         LA    R1,1(R14,R15)
+         EX    R14,SHVTRMT
+         SR    R1,R15
+         FBSBR10 R2
+         ST    R1,SHVVALL-SHVBLOCK+XSHVSHVB-XSHVSECT(,R2)
+         ST    R15,SHVVALA-SHVBLOCK+XSHVSHVB-XSHVSECT(,R2)
+*
+         FBSBX10
+*
+SHVTRMT  TRT   0(0,R15),BLANK
+         EJECT
+*---------------------------------------------------------------------*
+*        SHVCHR: BUILD STRING POINTERS IN SHVBLOCK
+*                                                                     *
+*        (I) R0:  STRING LEN                                          *
+*            R1:  STRING ADDR                                         *
+*            R2:  XSHVSECT                                            *
+*---------------------------------------------------------------------*
+*
+SHVCHR   FBSBI10
+*
+         ST    R0,SHVVALL-SHVBLOCK+XSHVSHVB-XSHVSECT(,R2)
+         ST    R1,SHVVALA-SHVBLOCK+XSHVSHVB-XSHVSECT(,R2)
+*
+         FBSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        LITERAL POOL                                                 *
+*---------------------------------------------------------------------*
+*
+OPN1DEF  DC    XL256'0'
+         ORG   OPN1DEF+C'D'
+         DC    AL1(OPN1DCT)
+         ORG   OPN1DEF+C'E'
+         DC    AL1(OPN1ESD)
+         ORG   OPN1DEF+C'F'
+         DC    AL1(OPN1FND)
+         ORG   OPN1DEF+C'I'
+         DC    AL1(OPN1IGN)
+         ORG
+*
+         LTORG ,
+         SPACE
+         END
