@@ -1,0 +1,3082 @@
+&SYSPARM TITLE 'VM COMPARATOR SERIES (1006-CMS) DELTA COMPARATOR       X
+               (C) 1988 W. A. HUMPHRIES INCORPORATED'
+         SPACE 3
+***********************************************************************
+***                                                                 ***
+***             (C) 1988 W. A. HUMPHRIES INCORPORATED               ***
+***                                                                 ***
+***      THIS PROGRAM IS AN UNPUBLISHED TRADE SECRET WORK FULLY     ***
+***      PROTECTED BY THE UNITED STATES COPYRIGHT LAWS AND IS       ***
+***      A TRADE SECRET BELONGING TO THE COPYRIGHT OWNER.           ***
+***                                                                 ***
+***                          ** WARNING **                          ***
+***                                                                 ***
+***      THIS SOFTWARE IS PROTECTED BY U.S. COPYRIGHT LAW.          ***
+***      UNAUTHORIZED REPRODUCTION AND/OR SALES MAY RESULT IN       ***
+***      IMPRISONMENT OF UP TO ONE YEAR AND FINES OF UP TO $10,000  ***
+***      (17 U.S.C. SECTION 506).  COPYRIGHT INFRINGERS MAY ALSO    ***
+***      BE SUBJECT TO CIVIL LIABILITY.                             ***
+***                                                                 ***
+***********************************************************************
+         EJECT
+         COPY  WHMABC10
+         EJECT
+&WHSECT  CSECT
+         WHMEQU10
+         EJECT
+*---------------------------------------------------------------------*
+*        REGISTER USAGE  **  CONTROL VALUES                           *
+*---------------------------------------------------------------------*
+*
+RBASE    EQU   R3                  BASE
+RFILB    EQU   R4                  LARGER FILE PTR
+RBASE2   EQU   R5                  BASE (2)
+RFIL     EQU   R6                  FILE C/B PTR
+RFILA    EQU   R6                  FILE C/B PTR
+RSSP     EQU   R7                  SAVE STACK PTR
+RSSL     EQU   R8                  SAVE STACK LENGTH
+RSSU     EQU   R9                  SAVE STACK LIMIT
+RWS      EQU   R10                 WORKING STORAGE
+RNODE    EQU   R11                 LCS TREE NODE PTR
+RBASE3   EQU   R12                 BASE (3)
+*
+         USING &WHSECT,RBASE,RBASE2,RBASE3
+         USING WSSECT,RWS
+         USING NODESECT,RNODE
+         USING FILSECT,RFIL
+*
+*        RETURN CODES:
+*        ------------
+*
+XNOCOMD  EQU   4                   FILES HAVE NO RECORDS IN COMMON
+XIDEN    EQU   8                   FILES IDENTICAL - NO U/D OUTPUT
+XFILERR  EQU   12                  RECORD COUNT ERRORS IN I/P FILES
+XOPENERR EQU   16                  ERROR OPENING COMPARAND FILE(S)
+XSTORERR EQU   20                  OUT OF STORAGE
+XPARMERR EQU   24                  PARAMETER ERROR
+XUNAUTH  EQU   28                  EXECUTION UNAUTHORIZED
+         EJECT
+*---------------------------------------------------------------------*
+*        LCS STRING NODE MAP                                          *
+*---------------------------------------------------------------------*
+*
+*
+NODESECT DSECT
+NODENEXT DS    AL3                 LATERAL PTR
+NODEBACK DS    AL3                 BACK PTR
+NODESUBA DS    HL2                 A-POINTER
+NODESUBB DS    HL2                 B-POINTER
+NODESECL EQU   *-NODESECT
+*
+*
+*
+*              *---------------------*
+*              *  PTR TO NEXT (A,B)  |
+*              *  WITH SAME LCS LEN  |
+*              *---------------------*
+*              *  PTR TO LAST (A,B)  |
+*              *  WITH LCS LEN - 1   |
+*              *----------*----------*
+*              *  CO-OR A |  CO-OR B |
+*              *  (INDEX) |  (INDEX) |
+*              *----------*----------*
+*
+*
+*
+*---------------------------------------------------------------------*
+         EJECT
+*---------------------------------------------------------------------*
+*        LCS NODE INDEX MAP                                           *
+*                                                                     *
+*        EACH ENTRY IN THIS ARRAY POINTS TO A NODE WHOSE              *
+*        COORDINATES MAP THE N-TH SYMBOLS OF A COMMON SUBSEQUENCE,    *
+*        WHERE 'N' IS THE INDEX (+1) INTO THE ARRAY.                  *
+*---------------------------------------------------------------------*
+*
+*
+LCSSECT  DSECT
+LCSPTR   DS    AL3                 ADDR(1ST NODE ON LATERAL CHAIN)
+LCSLAST  DS    AL3                 ADDR(LAST NODE ON LATERAL CHAIN)
+LCSMARK  DS    HL2                 HIGHEST 'I', A(I) IN SET
+LCSSECL  EQU   *-LCSSECT
+*
+*
+*
+*        *------------------------------*---------------*
+*        * ==> PAIR / SUBSEQUENCE LEN 0 *  HIGHEST A(I) *
+*        *------------------------------*---------------*
+*        * ==> PAIR / SUBSEQUENCE LEN 1 *  HIGHEST A(I) *
+*        *------------------------------*---------------*
+*        * ==> PAIR / SUBSEQUENCE LEN 2 *  HIGHEST A(I) *
+*        *------------------------------*---------------*
+*
+*
+*                       .
+*                       .
+*                       .
+*
+*        *------------------------------*---------------*
+*        * ==> PAIR / SUBSEQUENCE LEN N *  HIGHEST A(I) *
+*        *------------------------------*---------------*
+*
+*
+*
+*---------------------------------------------------------------------*
+         EJECT
+*---------------------------------------------------------------------*
+*        PAIR STACK MAP                                               *
+*                                                                     *
+*        THIS STACK IS USED TO BUILD FRONT-TO-BACK PAIRS              *
+*        OF RECORDS FROM (A,B) FROM A BACK-TO-FRONT TRAVERSAL         *
+*        OF THE NODE TREE.                                            *
+*---------------------------------------------------------------------*
+*
+*
+PAIRSECT DSECT
+PAIRA    DS    H
+PAIRB    DS    H
+PAIRSECL EQU   *-PAIRSECT
+*
+*
+*
+*
+*        *-----------*-----------*
+*        | LCS 1 (A) | LCS 1 (B) |
+*        *-----------*-----------*
+*        | LCS 2 (A) | LCS 2 (B) |
+*        *-----------*-----------*
+*
+*              .           .
+*              .           .
+*              .           .
+*
+*        *-----------*-----------*
+*        | LCS N (A) | LCS N (B) |
+*        *-----------*-----------*
+*
+*---------------------------------------------------------------------*
+         EJECT
+*---------------------------------------------------------------------*
+*        SEQUENCE NUMBER FIELD (PRINT LINE) MAP                       *
+*                                                                     *
+*        SEQUENCE NUMBER LOCATIONS DEPENDS ON AMOUNT OF DATA          *
+*        DISPLAYED, WHICH IN TURN DEPENDS ON LARGEST FILE LRECL       *
+*---------------------------------------------------------------------*
+*
+*
+SEQSECT  DSECT
+SEQ1     DS    CL5,2C
+SEQ2     DS    CL5,2C
+SEQSECL  EQU   *-SEQSECT
+         EJECT
+*---------------------------------------------------------------------*
+*        COMPARAND FILE CONTROL BLOCK                                 *
+*---------------------------------------------------------------------*
+*
+FILSECT  DSECT
+FILDCBA  DS    A                   DCB ADDRESS
+FILCNT   DS    F                   CURRENT RECORD COUNT
+FILSEQ   DS    F                   SEQUENCE # OF RCD => BY FILPTR
+FILFIRST DS    A                   FIRST RECORD PTR
+FILFIRS2 DS    A                   FIRST RECORD PTR FOR TYPE 2 ALG
+FILLAST  DS    A                   LAST RECORD PTR
+FILLAS2  DS    A                   LAST RECORD PTR FOR TYPE 2 ALG
+FILCURRL DS    F                   CURRENT RECORD LENGTH
+FILCURRA DS    A                   CURRENT RECORD ADDRESS
+FILLRECL DS    F                   MAX RECORD LRECL
+FILPTR   DS    A                   CURRENT RECORD PTR
+FILRDLEN DS    F                   LENGTH OF RECORD DESCRIPTOR FIELD
+FILSTORR DS    F                   TOTAL FILE STORAGE REQUIRED
+FILFDSP  DS    F                   COMPARE FIELD DISPLACEMENT
+FILFLEN  DS    F                   COMPARE FIELD LENGTH
+FILDDNAM DS    CL8                 DDNAME S/A
+FILDESCR DS    CL8                 LITERAL DESCRIBING FILE
+FILDSN   DS    CL(L'JFCBDSNM)      DATASETNAME
+         DS    0A
+FILSECL  EQU   *-FILSECT           C/B LENGTH
+         EJECT
+*---------------------------------------------------------------------*
+*        WORKING STORAGE                                              *
+*---------------------------------------------------------------------*
+*
+WSSECT   DSECT
+WTPCB    WHMWTP11
+*
+PLIST    WHMPPL10 (ID,OPNS,LLIM,STOR,BOXM,BBGN,BLEN,RBGN,RLEN)
+*
+DW       DS    D                   W/A
+*
+OPNTAB   DS    XL256               OPTIONS TABLE
+OPNON    EQU   1                   =1, OPTION SPECIFIED
+*
+GETMIN   DS    F                   GETMAIN MINIMUM LENGTH
+GETMAX   DS    F                   GETMAIN MAXIMUM LENGTH
+GETALLAD DS    A                   GETMAIN'D ADDRESS
+GETALLLN DS    F                   GETMAIN'D LENGTH
+*
+GETMAINL GETMAIN VC,LA=0,MF=L,A=0
+*
+SYSUT1   DS    XL(L'$DCBQSI)
+SYSUT2   DS    XL(L'$DCBQSI)
+SYSUPD   DS    XL(L'$DCBQSO)
+SYSLOG   DS    XL(L'$DCBQSO)
+*
+SS       WHCSBL10 CAPACITY=9,SSP=RSSP,SSL=RSSL,SSX=ABEND4,SSU=RSSU
+         EJECT
+BSCCB    WHMBSC10
+         EJECT
+DATCB    WHMDAT11
+         EJECT
+*---------------------------------------------------------------------*
+*        WORKING STORAGE                                              *
+*---------------------------------------------------------------------*
+*
+SAVE     DS    18F                 S/A
+SUBSAVE  DS    18F                 S/A FOR SUBROUTINE
+REGCNT   DS    F                   ABEND W/A
+AREG     DS    XL(16*4)            ABEND REG'S
+COMPALGA DS    A                   COMPARISON ALG ADDRESS
+DEL1     DS    F                   DELETE SEGMENT - 1ST RECORD
+DEL2     DS    F                   .............  - LAST RECORD
+BOXMARGN DS    F                   BOX SIDES MARGIN (O= NO BOX)
+LARLRECL DS    A                   LARGEST POSS RCD / PER DCB INFO
+PRECPTR  DS    A                   PRINT RECORD PTR
+PSEQPTR  DS    A                   SEQUENCE NUMBERS PTR
+LBOXPTR  DS    A                   LEFT COL BOX PTR
+RBOXPTR  DS    A                   RIGHT ..........
+TIME     DS    F                   TIME
+LCSLEN   DS    F                   CURRENT LCS LENGTH
+GENLLCS  DS    F                   LENGTH OF LCS PROCESSED BY GENLIST
+NODSTORA DS    A                   NODE STORAGE ALLOCATED
+DIAGSAVE DS    16F                 (DEBUGGING)
+TYP2SAVE DS    5A                  W/A
+LCSARRAD DS    A                   START OF LCS INDEX ARRAY
+LCSL1PTR DS    A                   ADDRESS OF 2ND LCS ENTRY (LEN=1)
+LCSLEVEL DS    A                   LAST ENTRY USED IN ARRAY
+SMALLER  DS    A                   PTR TO SMALLER FILE FILCB
+LARGER   DS    A                   PTR TO LARGER  FILE FILCB
+LARPRINT DS    A                   LARGEST RECORD WE CAN PRINT
+PAIRSAD  DS    A                   PAIRS STACK ADDRESS
+PAIRSPTR DS    A                   CURRENT PAIRS ENTRY BEING PROC'D
+PAIRSBND DS    F                   PAIRS ARRAY UPPER BOUND
+PAIRSLN  DS    F                   PAIRS STACK LENGTH
+EXITWORD DS    A                   OPEN EXIT WORD
+CFIL1    DS    XL(FILSECL)         COMPARAND FILE C/B'S
+CFIL2    DS    XL(FILSECL)         .
+ALSTORA  DS    A                   ALGORITHM STORAGE ADDRESS
+ALSTORRQ DS    A                   ----------------- REQUESTED
+ALSTORL  DS    F                   ----------------- LENGTH
+ALSTORLK DS    F                   ----------------- LENGTH IN K
+ALSTORU  DS    F                   ----------------- USED
+PARMADDR DS    F                   PARM REGISTER
+LIST     DS    4A                  OPEN/CLOSE LIST
+LINLIM   DS    F                   LINE LIMIT
+PAGCOUNT DS    F                   PAGE NUMBER
+LINCNT   DS    F                   CURRENT LINE COUNT
+UPDCNT   DS    F                   RECORDS OUT
+RETURNC  DS    F                   RETURN CODE
+         EJECT
+CAUCB    WHMCAU11
+         EJECT
+*---------------------------------------------------------------------*
+*        WORKING STORAGE                                              *
+*---------------------------------------------------------------------*
+*
+JFCBSTOR DS    0A
+         IEFJFCBN
+         EJECT
+*---------------------------------------------------------------------*
+*        WORKING STORAGE                                              *
+*                                                                     *
+*        -OTHER CONTROL BLOCKS                                        *
+*---------------------------------------------------------------------*
+*
+CAHCB    WHMCAH11
+*
+CPUSTOR  WHMCPU10 MF=STORE,CAP=16
+         EJECT
+*---------------------------------------------------------------------*
+*        WORKING STORAGE                                              *
+*                                                                     *
+*        -PRINT LINE LAYOUTS                                          *
+*        -UPDATE RECORD LAYOUT                                        *
+*---------------------------------------------------------------------*
+*
+PLINE    DS    CL133               PRINT DETAIL LINE
+         ORG   PLINE
+PCC      DS    CL1                 CARRIAGE CONTROL
+PDATA    DS    CL(L'PLINE-L'PCC)   DATA AREA
+PMSG     EQU   PLINE+(H4BGN-H4)
+         ORG
+*
+UPDREC   DS    CL80                UPDATE OUTPUT RECORD
+         ORG   UPDREC
+UPDDEL   DS    CL(L'UDELLIT)
+         ORG   UPDREC
+UPDINS   DS    CL(L'UINSLIT)
+         ORG
+         EJECT
+*---------------------------------------------------------------------*
+*        WORKING STORAGE                                              *
+*                                                                     *
+*        -HEADER LAYOUTS                                              *
+*---------------------------------------------------------------------*
+*
+H1A      DS    CL(L'PLINE)
+         ORG   H1A+1
+H1ATEXT  DS    CL(L'PLINE-1)
+         ORG   ,
+*
+H1B      DS    CL(L'PLINE)
+         ORG   H1B+1
+H1BTEXT  DS    CL(L'PLINE-1)
+         ORG   ,
+*
+H1C      DS    CL(L'PLINE)
+         ORG   H1C+1
+H1CTEXT  DS    CL(L'PLINE-1)
+         ORG   ,
+*
+H2       DS    CL(L'PLINE)
+         ORG   H2+1+(L'H2-1-H2LEN)/2
+H2BGN    EQU   *
+HDATL    DS    CL8,C
+HDAT     DS    CL8,4C
+HTIML    DS    CL8,C
+HTIM     DS    CL8,4C
+HIDL     DS    CL8,C
+HID      DS    CL8,4C
+HJOBL    DS    CL8,C
+HJOB     DS    CL8
+H2LEN    EQU   *-H2BGN
+         ORG   ,
+*
+H3       DS    CL(L'PLINE)
+         ORG   H3+1+(L'H3-1-H3LEN)/2
+H3BGN    EQU   *
+HSTOL    DS    CL8,C
+HSTO     DS    CL8,4C
+HLINL    DS    CL8,C
+HLIN     DS    CL8,4C
+HOPNL    DS    CL8,C
+HOPN     DS    CL8,4C
+HPAGL    DS    CL8,C
+HPAG     DS    CL8
+H3LEN    EQU   *-H3BGN
+         ORG   ,
+         EJECT
+*---------------------------------------------------------------------*
+*        WORKING STORAGE                                              *
+*                                                                     *
+*        -HEADER LAYOUTS                                              *
+*---------------------------------------------------------------------*
+*
+H4       DS    CL(L'PLINE)
+         ORG   H4+1+(L'H4-1-H4LEN)/2
+H4BGN    EQU   *
+H4FORML  DS    CL4
+HC1LIT   DS    CL(L'C1LIT)
+HC1DSN   DS    CL(L'JFCBDSNM)
+H4FORMC  DS    CL4
+HC2LIT   DS    CL(L'C2LIT)
+HC2DSN   DS    CL(L'JFCBDSNM)
+H4FORMR  DS    CL4
+H4LEN    EQU   *-H4BGN
+         ORG   ,
+*
+H5       DS    CL(L'PLINE)
+         ORG   H5+1+(L'H5-1-H5LEN)/2
+H5BGN    EQU   *
+HBBGNL   DS    CL8,C
+HBBGN    DS    CL8,4C
+HBLENL   DS    CL8,C
+HBLEN    DS    CL8,4C
+HRBGNL   DS    CL8,C
+HRBGN    DS    CL8,4C
+HRLENL   DS    CL8,C
+HRLEN    DS    CL8
+H5LEN    EQU   *-H5BGN
+         ORG   ,
+*
+H6       DS    CL(L'PLINE)         DATA SUBHEADINGS
+H7       DS    CL(L'PLINE)
+         EJECT
+*---------------------------------------------------------------------*
+*        WORKING STORAGE                                              *
+*---------------------------------------------------------------------*
+*
+PROCESS  DS    BL1                 PROCESSING INDICATORS:
+PROCSTOX EQU   1                   =1, STORAGE REQ'S EXCEED AMT SPEC'D
+PROCEMPD EQU   2                   =1, ONE OR BOTH D/S EMPTY
+PROCBOX  EQU   4                   =1, BOX CONSTRUCTION IN EFFECT
+PROCCSWP EQU   8                   =1, (A,B) MEANINGS SWITCHED FOR ALG.
+PROCLERR EQU   16                  =1, FILE RECORD LENGTH ERROR
+PROCNCOM EQU   32                  =1, FILES HAVE NO RECORDS IN COMMON
+PROCFIDN EQU   64                  =1, FILES ARE IDENTICAL
+PROCPRTD EQU   128                 =1, PRINTING DATA
+*
+PROCESS2 DS    BL1                 PROCESSING INDICATORS (2):
+PRO2UPDL EQU   1                   =1, ENTRY PUBLISHED IN UPDATE LIST
+*
+JULIAN   DS    PL3                 DATE
+BSARG    DS    XL(L'LCSMARK)       W/A FOR B-SEARCH
+EDITWORK DS    CL12                EDIT W/A
+COMPPAD  DS    CL1                 PAD CHARACTER FOR COMPARE
+AC       DS    BL1                 ABEND CODE
+WORK6    DS    CL6                 W/A
+*
+BOXCSET  WHMBXC10                  BOX CHARACTER SET
+*
+DSNCB    WHMDSN11
+*
+AUTH     WHCDAA10 LEN=5
+*
+LINELIST LINEDIT MF=L,MAXSUBS=8
+*
+PPGCB    WHMPPG11
+*
+SCANB    DS    XL256               SCAN TO BLANK
+*
+         DS    0D
+WSLEN    EQU   *-WSSECT
+         EJECT
+*---------------------------------------------------------------------*
+*        INITIALIZATION                                               *
+*                                                                     *
+*        -PRIME REGISTERS                                             *
+*        -GET WORKING STORAGE AND CLEAR                               *
+*---------------------------------------------------------------------*
+*
+&WHSECT  CSECT
+         WHCCSR10 PSN=1006-CMS,CYR=1988
+*
+         LR    RBASE,R15
+         LA    RBASE2,4095(,RBASE)
+         LA    RBASE2,1(,RBASE2)
+         LA    RBASE3,4095(,RBASE2)
+         LA    RBASE3,1(,RBASE3)
+*
+         LR    R2,R1
+*
+         L     R0,=A(WSLEN)
+         GETMAIN R,LV=(0)
+         LR    RWS,R1
+*
+         LR    R0,RWS
+         L     R1,=A(WSLEN)
+         XR    R15,R15
+         MVCL  R0,R14
+*
+         LA    R15,SAVE
+         ST    R15,8(,R13)
+         ST    R13,4(,R15)
+         LR    R13,R15
+*
+         ST    R2,PARMADDR         SAVE R1
+         EJECT
+*---------------------------------------------------------------------*
+*        INITIALIZATION                                               *
+*                                                                     *
+*        -PRIME SUBROUTINE LINK REGISTERS                             *
+*        -BUILD OTHER REENTRANT CONSTANTS                             *
+*---------------------------------------------------------------------*
+*
+         WHCSBP10
+*
+         MVI   COMPPAD,$BLANK
+         MVI   PCC,$SPACE1         CLEAR PRINT LINE
+         MVI   UPDREC,$BLANK
+         MVC   UPDREC+1(L'UPDREC-1),UPDREC
+         MVI   PDATA,$BLANK
+         MVC   PDATA+1(L'PDATA-1),PDATA
+         MVI   $WTPTEXT,$BLANK
+         MVC   $WTPTEXT+1(L'$WTPTEXT-1),$WTPTEXT
+         MVI   H1A,C'1'
+         MVI   H1B,$BLANK
+         MVI   H1C,$BLANK
+         MVI   H2,C'0'
+         MVI   H2+1,$BLANK
+         MVC   H2+2(L'H2-2),H2+1
+         MVI   H3,$BLANK
+         MVC   H3+1(L'H3-1),H3
+         MVI   H4,C'0'
+         MVI   H4+1,$BLANK
+         MVC   H4+2(L'H4-2),H4+1
+         MVI   H4BGN,C'-'
+         MVC   H4BGN+1(H4LEN-1),H4BGN
+         MVC   H4+1+(L'H4-1-L'DIAGLIT)/2(L'DIAGLIT),DIAGLIT
+         MVI   H5,$BLANK
+         MVC   H5+1(L'H5-1),H5
+         MVI   H6,$BLANK
+         MVC   H6+1(L'H6-1),H6
+         MVI   H6,C'0'
+         MVI   H7,$BLANK
+         MVC   H7+1(L'H7-1),H7
+         MVI   SCANB+$BLANK,4
+*
+         MVC   HPAGL,=CL8'PAGE:'
+         MVC   HDATL,=CL8'RUNDATE:'
+         MVC   HTIML,=CL8'RUNTIME:'
+         MVC   HIDL,=CL8'RUNID:'
+         MVC   HSTOL,=CL8'AL-STOR:'
+         MVC   HOPNL,=CL8'OPTIONS:'
+         MVC   HJOBL,=CL8'JOB/USR:'
+         MVC   HLINL,=CL8'LINECNT:'
+         MVC   HBBGNL,=CL8'B/COL:'
+         MVC   HRBGNL,=CL8'R/COL:'
+         MVC   HRLENL,=CL8'R/LEN:'
+         MVC   HBLENL,=CL8'B/LEN:'
+         EJECT
+*---------------------------------------------------------------------*
+*        INITIALIZATION                                               *
+*                                                                     *
+*        -BUILD DCB'S                                                 *
+*---------------------------------------------------------------------*
+*
+         MVC   SYSUT1,INDCB
+         MVC   DCBDDNAM-IHADCB+SYSUT1,=CL8'SYSUT1'
+         LA    R0,READCMPE
+         STCM  R0,7,DCBEODA-IHADCB+SYSUT1
+*
+         MVC   SYSUT2,INDCB
+         MVC   DCBDDNAM-IHADCB+SYSUT2,=CL8'SYSUT2'
+         LA    R0,READCMPE
+         STCM  R0,7,DCBEODA-IHADCB+SYSUT2
+*
+         MVC   SYSLOG,OUTDCB
+         MVC   DCBDDNAM-IHADCB+SYSLOG,=CL8'SYSLOG'
+*
+         MVC   SYSUPD,OUTDCB
+         MVC   DCBDDNAM-IHADCB+SYSUPD,=CL8'SYSUPD'
+         EJECT
+*---------------------------------------------------------------------*
+*        GET DATE AND TIME                                            *
+*---------------------------------------------------------------------*
+*
+         TIME  BIN
+*
+         ST    R0,TIME
+         STCM  R1,7,JULIAN
+*
+         WHCDAT11 TYPE=J,EDIT=8,ILOC=JULIAN,OLOC=HDAT,CB=DATCB,        X
+               FSEP=C'/'
+*
+         WHCDAT11 TYPE=TB,EDIT=T8,ILOC=TIME,OLOC=HTIM,CB=DATCB,        X
+               FSEP=C'.'
+         EJECT
+*---------------------------------------------------------------------*
+*        AUTHORIZE USER                                               *
+*---------------------------------------------------------------------*
+*
+         LA    R0,=CL8'SYSAUTH'    DCB FOR AUTH
+*
+         WHCCAU11 CB=CAUCB,DDNA=(R0),AUXL=L'AUTH,AUXA=AUTH,            X
+               ERROR=UNAUTH,                                           X
+               CPUA=CPUSTOR,CPUL=L'CPUSTOR,PID=1006,WTPA=WTPCB,        X
+               PNMA=GENTITLE,PNML=L'GENTITLE
+*
+         WHCCAS11 CB=CAUCB,PRMA=PARMADDR,SAVA=SUBSAVE,ERROR=UNAUTH
+*
+         WHCCAH11 CB=CAHCB,CAUA=CAUCB,DATA=DATCB,ERROR=ABEND1,         X
+               SAVA=SUBSAVE,                                           X
+               H1A=H1ATEXT,H1L=L'H1ATEXT,                              X
+               H2A=H1BTEXT,H2L=L'H1BTEXT,                              X
+               H3A=H1CTEXT,H3L=L'H1CTEXT
+         EJECT
+*---------------------------------------------------------------------*
+*        VALIDATE PLIST                                               *
+*---------------------------------------------------------------------*
+*
+         WHCPPG11 REG1=PARMADDR,LOC=PLIST,CB=PPGCB,ERROR=PARMERR,      X
+               CAP=$PPLITMS,ENV=CMS
+*
+         LA    R1,$PPLLLIM         CHECK LINE LIMIT
+         BAL   R14,CHECKNUM        .
+         BNP   PLLINX              ERROR
+         ST    R15,LINLIM          .
+         LR    R0,R15              EDIT IN HDR
+         LA    R1,HLIN             .
+         BAL   R14,EDITNO          .
+*
+         LA    R1,$PPLSTOR         GET ALGORITHM STORAGE SIZE
+         BAL   R14,CHECKNUM        .
+         BNP   PLSTORX             ERROR
+         LR    R0,R15              SAVE FOR EDIT
+         ST    R0,ALSTORLK         SAVE FOR MSG
+         MH    R15,=Y($K)          IN 'K'
+         ST    R15,ALSTORL         .
+         LA    R1,HSTO             EDIT
+         BAL   R14,EDITNO          .
+         MVI   0(R15),C'K'
+*
+         LA    R1,$PPLBOXM         GET BOX MARGINS
+         BAL   R14,CHECKNUM        .
+         BM    PLBOXMX             ERROR
+         ST    R15,BOXMARGN        SAVE
+         EJECT
+*---------------------------------------------------------------------*
+*        VALIDATE AND ENCODE OPTION STRING                            *
+*---------------------------------------------------------------------*
+*
+OPTCHK   DS    0H
+         LA    R0,L'$PPLOPNS       SET UP ITERATION CNT
+         LA    R15,$PPLOPNS
+*
+OPTCHK2  EQU   *
+         XR    R1,R1               MARK OPTION ON IN TABLE
+         IC    R1,0(,R15)          .
+         LA    R1,OPNTAB(R1)       .
+         OI    0(R1),OPNON         .
+         LA    R15,1(,R15)         .
+         BCT   R0,OPTCHK2          .
+         EJECT
+*---------------------------------------------------------------------*
+*        VALIDATE AND ENCODE FIELD START LOCATIONS / LENGTH           *
+*---------------------------------------------------------------------*
+*
+         LA    R1,$PPLBBGN         CHECK BASE FIELD BEGIN COLUMN #
+         BAL   R14,CHECKNUM        .
+         BNP   PLFDERR             ERROR
+         BCTR  R15,0
+         ST    R15,FILFDSP-FILSECT+CFIL1
+         LA    R0,1(,R15)          EDIT IN HDR
+         LA    R1,HBBGN            .
+         BAL   R14,EDITNO          .
+*
+         MVC   HBLEN,$PPLBLEN
+         CLC   =CL2'*',$PPLBLEN
+         BE    QRBGN
+         LA    R1,$PPLBLEN         CHECK BASE FIELD LENGTH VALUE
+         BAL   R14,CHECKNUM        .
+         BNP   PLFDERR             ERROR
+         ST    R15,FILFLEN-FILSECT+CFIL1
+         LR    R0,R15              EDIT IN HDR
+         LA    R1,HBLEN            .
+         BAL   R14,EDITNO          .
+*
+QRBGN    EQU   *
+         LA    R1,$PPLRBGN         CHECK REVN FIELD BEGIN COLUMN #
+         BAL   R14,CHECKNUM        .
+         BNP   PLFDERR             ERROR
+         BCTR  R15,0
+         ST    R15,FILFDSP-FILSECT+CFIL2
+         LA    R0,1(,R15)          EDIT IN HDR
+         LA    R1,HRBGN            .
+         BAL   R14,EDITNO          .
+*
+         MVC   HRLEN,$PPLRLEN
+         CLC   =CL2'*',$PPLRLEN
+         BE    ANAME
+         LA    R1,$PPLRLEN         CHECK REVN FIELD LENGTH VALUE
+         BAL   R14,CHECKNUM        .
+         BNP   PLFDERR             ERROR
+         ST    R15,FILFLEN-FILSECT+CFIL2
+         LR    R0,R15              EDIT IN HDR
+         LA    R1,HRLEN            .
+         BAL   R14,EDITNO          .
+         EJECT
+*---------------------------------------------------------------------*
+*        FILL IN OTHER SUBHEADING VARIABLES                           *
+*---------------------------------------------------------------------*
+*
+ANAME    EQU   *
+*        $ASN  REG1=PARMADDR,NLOC=HJOB,CB=ASNCB
+*
+         MVC   HID,$PPLID
+         MVC   HOPN,$PPLOPNS
+         EJECT
+*---------------------------------------------------------------------*
+*        DO PARAMETER SUMMARY PROCESSING                              *
+*                                                                     *
+*        -FORCE NEW PAGE                                              *
+*        -GET ALGORITHM STORAGE                                       *
+*        -BUILD APPROPRIATE BOX CHARACTER SET TABLE                   *
+*---------------------------------------------------------------------*
+*
+         MVC   LINCNT,LINLIM
+*
+         L     R0,ALSTORL          GET ALGORITHM STORAGE
+         ST    R0,GETMAX           BUILD GETMAIN LIST
+         ST    R0,GETMIN
+*
+         GETMAIN VC,LA=GETMIN,A=GETALLAD,MF=(E,GETMAINL)
+*
+         LTR   R15,R15             STORAGE GOT?
+         BNZ   ALSTOERR            NO...
+         MVC   ALSTORA,GETALLAD    COPY ADDRESS
+*
+         TM    OPNTAB+C'Y',OPNON   3800 BOX CHAR SET?
+         BO    BOX3800             YES...
+         TM    OPNTAB+C'X',OPNON   1403 TEXT CHAR SET?
+         BO    BOX1403T            YES...
+         LA    R15,BXC1403         BUILD DEFAULT (TERM) BOX CHAR SET
+         MVC   BOXCSET($BXCCBL),0(R15)
+         B     OPENLOG             CONTINUE.
+*
+BOX3800  DS    0H
+         LA    R15,BXC3800         3800 BOX CHAR SET
+         MVC   BOXCSET($BXCCBL),0(R15)
+         B     OPENLOG             CONTINUE.
+*
+BOX1403T DS    0H
+         LA    R15,BXC1403T        1403 BOX CHAR SET
+         MVC   BOXCSET($BXCCBL),0(R15)
+         B     OPENLOG             CONTINUE.
+         EJECT
+*---------------------------------------------------------------------*
+*        GENERAL OPEN PROCESSING                                      *
+*                                                                     *
+*        -OPEN LOG FILE                                               *
+*        -OPEN UPDATE TRANSACTION FILE                                *
+*        -OPEN COMPARAND FILES                                        *
+*---------------------------------------------------------------------*
+*
+OPENLOG  EQU   *
+         WHCLST10 (SYSUPD,$OPENO,                                      X
+               SYSLOG,$OPENO),                                         X
+               CB=LIST,SVC=$SVCOPN
+*
+* BUILD DCB PTR'S IN FILE CB'S:
+*
+         LA    R1,SYSUT1
+         ST    R1,FILDCBA-FILSECT+CFIL1
+         MVC   FILDESCR-FILSECT+CFIL1,=CL8'BASE'
+         LA    R1,SYSUT2
+         ST    R1,FILDCBA-FILSECT+CFIL2
+         MVC   FILDESCR-FILSECT+CFIL2,=CL8'REVISION'
+*
+* OPEN COMPARAND FILES:
+*
+         LA    R1,CFIL1
+         BAL   R14,OPENCMP
+         LR    R2,R15              SAVE R/C FROM OPEN-1
+         LA    R1,CFIL2
+         BAL   R14,OPENCMP
+         OR    R2,R15              IF EITHER FAILED, EXIT.
+         BNZ   END                 ...
+         EJECT
+*---------------------------------------------------------------------*
+*        GENERAL OPEN PROCESSING                                      *
+*                                                                     *
+*        (OPEN COMPARAND FILES)                                       *
+*                                                                     *
+*        -BUILD DSN'S IN SUBHEADING                                   *
+*        -PICK ALGORITHM FOR COMPARISON                               *
+*---------------------------------------------------------------------*
+*
+         MVI   H4BGN,C'-'
+         MVC   H4BGN+1(H4LEN-1),H4BGN
+         MVC   HC1LIT,C1LIT        FORMATTING...
+         MVC   HC2LIT,C2LIT        .
+         LA    R0,FILDSN-FILSECT+CFIL1 BUILD DSN'S IN SUBHEADING
+         LA    R1,HC1DSN           .
+         BAL   R14,DSN             .
+         MVC   0(L'DSNTRML,R15),DSNTRML
+         LA    R0,FILDSN-FILSECT+CFIL2
+         LA    R1,HC2DSN           .
+         BAL   R14,DSN             .
+         MVC   0(L'DSNTRML,R15),DSNTRML
+*
+         LA    R0,TYPE1            ASSUME TYPE 1 ALGORITHM
+         ST    R0,COMPALGA         .
+*
+* IF BOTH FILES RECFM F, THEIR LRECL'S ARE SAME AND .LT. 256,
+* IF BOTH FILES FIELD LENGTH AND DISP ARE SAME,
+* USE ALGORITHM 2...
+*
+         TM    DCBRECFM-IHADCB+SYSUT1,DCBRECV
+         BO    TYP1MSG
+         TM    DCBRECFM-IHADCB+SYSUT2,DCBRECV
+         BO    TYP1MSG
+         CLC   DCBLRECL-IHADCB+SYSUT1,DCBLRECL-IHADCB+SYSUT2
+         BNE   TYP1MSG
+         CLC   DCBLRECL-IHADCB+SYSUT1,=H'256'
+         BNL   TYP1MSG
+         CLC   FILFDSP-FILSECT+CFIL1,FILFDSP-FILSECT+CFIL2
+         BNE   TYP1MSG
+         CLC   FILFLEN-FILSECT+CFIL1,FILFLEN-FILSECT+CFIL2
+         BNE   TYP1MSG
+*
+         LA    R0,TYPE2            USE TYPE 2 ALGORITHM
+         ST    R0,COMPALGA         .
+         MVC   PMSG(L'T2MSG),T2MSG
+         BAL   R14,PRINT
+         B     READ
+*
+TYP1MSG  DS    0H
+         MVC   PMSG(L'T1MSG),T1MSG
+         BAL   R14,PRINT
+         B     READ
+*
+T1MSG    DC    C'&WHRN.001I TYPE I COMPARISON ALGORITHM WILL BE USED'
+T2MSG    DC    C'&WHRN.002I TYPE II COMPARISON ALGORITHM WILL BE USED'
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - STAGE 1                                          *
+*                                                                     *
+*        READ ALL RECORD DATA FROM SYSUT1/SYSUT2 INTO STORAGE         *
+*---------------------------------------------------------------------*
+*
+READ     DS    0H
+         LA    R1,CFIL1            READ DATA FROM COMPARAND-1
+         BAL   R14,READCMP
+         BAL   R14,CLOSCMP
+         LA    R1,CFIL2            READ DATA FROM COMPARAND-2
+         BAL   R14,READCMP
+         BAL   R14,CLOSCMP
+*
+         TM    PROCESS,PROCLERR    LENGTH ERROR?
+         BO    READERR             YES...
+         TM    PROCESS,PROCSTOX    STORAGE ERROR?
+         BZ    STAGE1A             NO, CHECK FOR EMPTY D/S'S.
+*
+         MVC   PMSG(L'MSGSEXH1),MSGSEXH1
+         BAL   R14,PRINT
+*
+READERR  EQU   *
+         BAL   R14,STORSTAT
+         LA    R1,XSTORERR         SET R/C
+         BAL   R14,SETRCODE        .
+         BAL   R14,STORSTAT
+         BAL   R14,SEVMSG
+         B     END
+*
+MSGSEXH1 DC    C'&WHRN.003E STORAGE POOL EXHAUSTED'
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - STAGE 1                                          *
+*                                                                     *
+*        -CHECK FOR EMPTY DATASETS                                    *
+*        -CHECK FOR EXCESSIVELY LARGE DATASETS                        *
+*---------------------------------------------------------------------*
+*
+STAGE1A  DS    0H
+         NC    FILCNT-FILSECT+CFIL1,FILCNT-FILSECT+CFIL1
+         BZ    STAGE1B
+         NC    FILCNT-FILSECT+CFIL2,FILCNT-FILSECT+CFIL2
+         BNZ   STAGE1C
+*
+STAGE1B  EQU   *
+         MVC   PMSG(L'MSGEMPT1),MSGEMPT1 ISSUE MSG / SET RC
+         BAL   R14,PRINT
+         LA    R1,XFILERR
+         BAL   R14,SETRCODE
+         BAL   R14,STORSTAT
+         BAL   R14,SEVMSG
+         B     END
+*
+STAGE1C  DS    0H
+         CLC   FILCNT-FILSECT+CFIL1,=F'65535'
+         BH    STAGE1D
+         CLC   FILCNT-FILSECT+CFIL2,=F'65535'
+         BNH   STAGE1E
+*
+STAGE1D  EQU   *
+         MVC   PMSG(L'MSGHIGH1),MSGHIGH1 ISSUE MSG / SET RC
+         BAL   R14,PRINT
+         LA    R1,XFILERR
+         BAL   R14,SETRCODE
+         BAL   R14,STORSTAT
+         BAL   R14,SEVMSG
+         B     END
+*
+MSGEMPT1 DC    C'&WHRN.004E ONE OR BOTH COMPARAND FILES ARE EMPTY'
+MSGHIGH1 DC    C'&WHRN.005E ONE OR BOTH COMPARAND FILES CONTAIN TOO MANX
+               Y RECORDS'
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - STAGE 1                                          *
+*                                                                     *
+*        -FIND OUT WHICH FILE SMALLER / LONGER                        *
+*        -ALLOCATE LCS INDEX ARRAY                                    *
+*        -HANDLE ALLOCATION ERROR                                     *
+*---------------------------------------------------------------------*
+*
+STAGE1E  DS    0H
+         LA    R0,CFIL1            ASSUME 1 SMALLER / 2 LARGER
+         ST    R0,SMALLER
+         LA    R0,CFIL2
+         ST    R0,LARGER
+         CLC   FILCNT-FILSECT+CFIL1,FILCNT-FILSECT+CFIL2
+         BNH   STAGE1F
+         XC    SMALLER,LARGER      NOT TRUE - SWAP
+         XC    LARGER,SMALLER
+         XC    SMALLER,LARGER
+         OI    PROCESS,PROCCSWP    SHOW SWAPPED
+*
+STAGE1F  EQU   *
+         BAL   R14,ALIGN           ENSURE ARRAY ALLOCATED ON DW
+         L     RFIL,SMALLER        LARGEST LCS = SMALLEST REC/CNT
+         LA    R1,1                ADD 1 FOR LCS SET 0
+         A     R1,FILCNT           .
+         MH    R1,=Y(LCSSECL)      .
+         BAL   R14,ALLOC           .
+         BNZ   LCSPREP             ARRAY GOT ...
+*
+         MVC   PMSG(L'MSGLCSS1),MSGLCSS1 ISSUE MSG / SET RC
+         BAL   R14,PRINT
+         LA    R1,XSTORERR
+         BAL   R14,SETRCODE
+         BAL   R14,STORSTAT
+         BAL   R14,SEVMSG
+         B     END
+*
+MSGLCSS1 DC    C'&WHRN.006E LCS ARRAY ALLOCATION FAILED'
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - LCS ARRAY GOT                                    *
+*                                                                     *
+*        -BUILD ARRAY POINTERS                                        *
+*        -BUILD A(MAX) AS MARKER IN S(0)                              *
+*        -CALL COMPARISON ALGORITHM AND CHECK RESULTS                 *
+*---------------------------------------------------------------------*
+*
+LCSPREP  DS    0H
+         ST    R15,LCSARRAD        SAVE ARRAY ADDR
+         ST    R15,LCSLEVEL        ALSO = 1ST ENTRY USED
+         LA    R0,LCSSECL(,R15)    GENERATE LEN=1 ENTRY PTR
+         ST    R0,LCSL1PTR         FOR LATER
+         MVC   LCSMARK-LCSSECT(L'LCSMARK,R15),FILCNT+L'FILCNT-L'LCSMARK
+         BAL   R14,ALIGN           ENSURE NODE ALLOC'NS START ALIGNED
+         L     R15,COMPALGA        GET COMPARISON CODE ADDR
+         BALR  R14,R15             PERFORM
+         BZ    LCSGOT              LCS GOT.
+*
+         MVC   PMSG(L'MSGNSRQ1),MSGNSRQ1 ISSUE MSG / SET RC
+         L     R0,FILSEQ-FILSECT+CFIL1
+         LA    R1,PMSG+L'MSGNSRQ1
+         BAL   R14,EDITNO
+         MVC   0(L'MSGNSRQ2,R15),MSGNSRQ2
+         L     R0,FILSEQ-FILSECT+CFIL2
+         LA    R1,L'MSGNSRQ2(,R15)
+         BAL   R14,EDITNO
+         MVC   0(L'MSGNSRQ3,R15),MSGNSRQ3
+         BAL   R14,PRINT
+*
+         LA    R1,XSTORERR
+         BAL   R14,SETRCODE
+         BAL   R14,NODESTAT
+         BAL   R14,STORSTAT
+         BAL   R14,SEVMSG
+         B     END
+*
+MSGNSRQ1 DC    C'&WHRN.007E NODE STORAGE REQUEST FAILED ('
+MSGNSRQ2 DC    C':'
+MSGNSRQ3 DC    C')'
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - LCS FOUND / NODES CONSTRUCTED                    *
+*                                                                     *
+*        -FIND OUT S(K) OF A(N) --- LONGEST LCS                       *
+*        -IF LCS 0, SET R/C AND ISSUE MSG (NO RCDS IN COMMON)         *
+*---------------------------------------------------------------------*
+*
+LCSGOT   DS    0H
+         L     R1,FILCNT-FILSECT(,RFILA)
+         BAL   R14,FINDSET
+         ST    R15,LCSLEN
+         LTR   R15,R15
+         BNZ   LCSGOT2
+*
+         LA    R1,XNOCOMD          SET SEVERITY IF NO LCS
+         BAL   R14,SETRCODE
+         OI    PROCESS,PROCNCOM
+         MVC   PMSG(L'MSGNCOM1),MSGNCOM1
+         BAL   R14,PRINT
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - LCS FOUND / NODES CONSTRUCTED                    *
+*                                                                     *
+*        -SET R/C & ISSUE MSG IF FILES IDENTICAL                      *
+*        -COMPLETE STATISTICS MSG'S                                   *
+*        -IF NO LCS, SKIP PAIRS ALLOC AND WRITE REPORT                *
+*---------------------------------------------------------------------*
+*
+LCSGOT2  EQU   *
+         L     R1,SMALLER          SET SEVERITY IF FILES EQUAL
+         L     R2,LARGER           .
+         CLC   FILCNT-FILSECT(L'FILCNT,R1),FILCNT-FILSECT(R2)
+         BNE   LCSGOT3
+         CLC   LCSLEN,FILCNT-FILSECT(R1)
+         BNE   LCSGOT3
+*
+         LA    R1,XIDEN
+         BAL   R14,SETRCODE
+         OI    PROCESS,PROCFIDN
+         MVC   PMSG(L'MSGFIDN1),MSGFIDN1
+         BAL   R14,PRINT
+*
+LCSGOT3  EQU   *
+         BAL   R14,LCSLMSG         ISSUE LCS LEN MSG
+         BAL   R14,NODESTAT
+         BAL   R14,STORSTAT
+         BAL   R14,SEVMSG
+*
+         NC    LCSLEN,LCSLEN       DO NOT GET PAIRS ARRAY IF LCS 0
+         BZ    REPORT
+         B     ALLOCP
+*
+MSGFIDN1 DC    C'&WHRN.008I FILES ARE IDENTICAL'
+MSGNCOM1 DC    C'&WHRN.009I FILES HAVE NO RECORDS IN COMMON'
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - LCS FOUND / NODES CONSTRUCTED                    *
+*                                                                     *
+*        -LCS FOUND (NON-0 LENGTH)                                    *
+*        -ALLOCATE PAIRS STACK TO ORDER FOR PROCESSING                *
+*        -HANDLE ALLOCATION FAILURE                                   *
+*---------------------------------------------------------------------*
+*
+* ALLOCATE PAIR STACK:
+*
+ALLOCP   DS    0H
+         BAL   R14,ALIGN           ALIGN
+         L     R1,LCSLEN           ALLOCATE STACK
+         MH    R1,=Y(PAIRSECL)     .
+         BAL   R14,ALLOC           .
+         BZ    PAIERROR            CANNOT...
+         ST    R1,PAIRSLN
+         ST    R15,PAIRSAD
+         LA    R0,0(R1,R15)
+         ST    R0,PAIRSBND
+         B     REPORT
+*
+PAIERROR DS    0H
+         MVC   PMSG(L'MSGPAIS1),MSGPAIS1 ISSUE MSG / SET RC
+         BAL   R14,PRINT
+         LA    R1,XSTORERR
+         BAL   R14,SETRCODE
+         BAL   R14,LCSLMSG
+         BAL   R14,NODESTAT
+         BAL   R14,STORSTAT
+         BAL   R14,SEVMSG
+         B     END
+*
+MSGPAIS1 DC    C'&WHRN.010E PAIR ARRAY ALLOCATION FAILED'
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - LCS FOUND / NODES CONSTRUCTED                    *
+*                                                                     *
+*        -GET LARGEST TEXT SIZE WE CAN PRINT                          *
+*        -GENERATE PRINT LINE PTR FOR TEXT/SEQUENCE NUMBERS           *
+*---------------------------------------------------------------------*
+*
+REPORT   DS    0H
+         TM    OPNTAB+C'B',OPNON   MAKE BOX PROC'G PENDING IF OPN SPEC
+         BZ    REPORT1             .
+         OI    PROCESS,PROCBOX     .
+*
+REPORT1  EQU   *
+         L     R1,FILLRECL-FILSECT+CFIL1
+         C     R1,FILLRECL-FILSECT+CFIL2
+         BNL   REPORT2
+         L     R1,FILLRECL-FILSECT+CFIL2
+*
+REPORT2  EQU   *
+         ST    R1,LARLRECL         SAVE LARGEST LRECL
+         ST    R1,LARPRINT         BUILD PRINT LRECL FROM SMALLER
+         LA    R2,L'PDATA-SEQSECL  OF LARGEST POSS RCD / PLINE MAX
+         CR    R2,R1               .
+         BNL   REPORT2B            .
+         ST    R2,LARPRINT         .
+*
+REPORT2B EQU   *
+         SR    R2,R1               GET SPACE LEFT OVER IN PLINE
+         BNM   REPORT3             .
+         XR    R2,R2               .
+*
+REPORT3  EQU   *
+         SRL   R2,1                CALCULATE CENTERED REC POS IN PLINE
+         LR    R1,R2               (SAVE EXTRA SPACE ON EITHER SIDE)
+         LA    R2,PDATA+SEQSECL(R2)
+         ST    R2,PRECPTR          .
+         ST    R2,PSEQPTR          ASSUME WE'LL USE FOR FINDING SEQ LOC
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - LCS FOUND / NODES CONSTRUCTED                    *
+*                                                                     *
+*        -GENERATE BOX POINTERS IF POSSIBLE                           *
+*        -UPDATE SEQUENCE NUMBERS PTR IF BOXES OK                     *
+*        -RESET BOX INDICATOR IF WE CANNOT HANDLE                     *
+*        -GENERATE UPDATE LISTING                                     *
+*---------------------------------------------------------------------*
+*
+         C     R1,BOXMARGN         TRY TO RESERVE UP TO X BYTES ON
+         BNH   REPORT4             EITHER SIDE
+         L     R1,BOXMARGN
+*
+REPORT4  EQU   *
+         LTR   R1,R1               ANY EXTRA SPACE?
+         BZ    REPORT5             NO EXTRA SPACE - NO BOX
+         LNR   R0,R1               BUILD LEFT POSITION
+         A     R0,PRECPTR          .
+         ST    R0,LBOXPTR          .
+         ST    R0,PSEQPTR          . NEW SEQ FIND VALUE
+         LR    R0,R1               BUILD RIGHT POSITION
+         A     R0,PRECPTR          .
+         A     R0,LARPRINT         .
+         BCTR  R0,0                .
+         ST    R0,RBOXPTR          .
+         B     REPORT6
+*
+REPORT5  DS    0H
+         NI    PROCESS,255-PROCBOX BOX PROCESSING IMPOSSIBLE
+         EJECT
+*---------------------------------------------------------------------*
+*        MAIN LINE - LCS FOUND / NODES CONSTRUCTED                    *
+*                                                                     *
+*        -GENERATE DATA SUBHEADING TEXT                               *
+*        -GENERATE UPDATE LISTING                                     *
+*---------------------------------------------------------------------*
+*
+REPORT6  EQU   *
+         L     R1,PSEQPTR          FINALIZE SEQ PTR
+         SH    R1,=Y(SEQSECL)      .
+         ST    R1,PSEQPTR          .
+         LA    R0,PLINE            FIND POSITION IN DATA SUBHEADINGS
+         SR    R1,R0               .
+         LA    R2,H6(R1)           .
+         MVC   SEQ1-SEQSECT(L'SEQ1,R2),=CL(L'SEQ1)'B/SEQ'
+         MVC   SEQ2-SEQSECT(L'SEQ2,R2),=CL(L'SEQ2)'R/SEQ'
+         LA    R2,H7(R1)
+         MVC   SEQ1-SEQSECT(L'SEQ1,R2),=CL(L'SEQ1)'-----'
+         MVC   SEQ2-SEQSECT(L'SEQ2,R2),=CL(L'SEQ2)'-----'
+*
+         L     R1,PRECPTR
+         LA    R0,PLINE
+         SR    R1,R0
+         LA    R2,H6(R1)
+         L     R1,LARPRINT
+         BCTR  R1,0
+         LA    R15,SCALE1
+         TM    OPNTAB+C'T',OPNON
+         BZ    REPORT7
+         LA    R15,SCALE2
+*
+REPORT7  EQU   *
+         EX    R1,H7MOVE
+*
+         L     R1,PRECPTR
+         LA    R0,PLINE
+         SR    R1,R0
+         LA    R2,H7(R1)
+         L     R1,LARPRINT
+         BCTR  R1,0
+         EX    R1,H7ZERO
+         EX    R1,H7INSR
+*
+         L     R1,LCSLEN           GENERATE UPDATE LISTING FOR LCSLEN
+         BAL   R14,GENLIST         .
+         B     END
+*
+H7MOVE   MVC   0(0,R2),0(R15)
+H7ZERO   XC    0(0,R2),0(R2)
+H7INSR   TR    0(0,R2),=C'-'
+         EJECT
+*---------------------------------------------------------------------*
+*        END-OF-PROCESS                                               *
+*                                                                     *
+*        -CLOSE LOG AND UPDATE FILES                                  *
+*---------------------------------------------------------------------*
+*
+END      DS    0H
+         WHCTAA10 ERR=ABEND5       CONFIRM AUTHORIZATION
+*
+         WHCLST10 (SYSUPD,$CLOSD,                                      X
+               SYSLOG,$CLOSD),                                         X
+               CB=LIST,SVC=$SVCCLS
+*
+         LA    R1,SYSUPD
+         BAL   R14,FREEPOOL
+         LA    R1,SYSLOG
+         BAL   R14,FREEPOOL
+         B     TERM
+*
+         EJECT
+*---------------------------------------------------------------------*
+*        ERROR EXITS                                                  *
+*---------------------------------------------------------------------*
+*
+PLLINX   DS    0H
+         WTO   '&WHRN.011E LINE LIMIT PARAMETER INVALID',ROUTCDE=11
+         B     PARMERR
+*
+PLSTORX  DS    0H
+         WTO   '&WHRN.012E STORAGE PARAMETER INVALID',ROUTCDE=11
+         B     PARMERR
+*
+PLBOXMX  DS    0H
+         WTO   '&WHRN.013E BOX MARGIN PARAMETER INVALID',ROUTCDE=11
+         B     PARMERR
+         EJECT
+*---------------------------------------------------------------------*
+*        ERROR EXITS               (CONTINUED)                        *
+*---------------------------------------------------------------------*
+*
+ALSTOERR DS    0H
+         WTO   '&WHRN.014E REQUIRED STORAGE UNAVAILABLE',ROUTCDE=11
+         B     PARMERR
+*
+PLFDERR  DS    0H
+         WTO   '&WHRN.015E BASE/REVISION FIELD DEFINITION ERROR',      X
+               ROUTCDE=11
+         B     PARMERR
+*
+PARMERR  EQU   *
+         LA    R1,XPARMERR
+         BAL   R14,SETRCODE
+         B     TERM
+         EJECT
+*---------------------------------------------------------------------*
+*        COMMON TERMINATION                                           *
+*---------------------------------------------------------------------*
+*
+TERM     DS    0H
+         ICM   R1,15,ALSTORA       STORAGE ALLOCATED?
+         BZ    FREEWS              NO...
+         L     R0,ALSTORL          .
+*
+         FREEMAIN R,LV=(0),A=(1)
+*
+FREEWS   EQU   *
+         L     R13,4(,R13)
+         L     R2,RETURNC
+*
+         LR    R1,RWS
+         L     R0,=A(WSLEN)
+*
+         FREEMAIN R,LV=(0),A=(1)
+*
+         LR    R15,R2
+*
+         RETURN (14,12),RC=(15)
+         EJECT
+*---------------------------------------------------------------------*
+*        UNAUTHORIZED USE EXIT                                        *
+*---------------------------------------------------------------------*
+*
+UNAUTH   DS    0H
+         LA    R1,XUNAUTH          SET UNAUTH R/C
+         BAL   R14,SETRCODE        .
+         B     TERM                EXIT.
+         EJECT
+*---------------------------------------------------------------------*
+*        ABENDS                                                       *
+*---------------------------------------------------------------------*
+*
+ABEND1   DS    0H
+         MVI   AC,1                ERROR BUILDING HEADINGS
+         B     ABENDX
+*
+ABEND2   DS    0H
+         MVI   AC,2                BINARY SEARCH ERROR
+         B     ABENDX
+*
+ABEND3   DS    0H
+         MVI   AC,3                ALG. UNEXPECTED EVENT
+         B     ABENDX
+*
+ABEND4   DS    0H
+         MVI   AC,4                SAVE STACK EXHAUST
+         B     ABENDX
+*
+ABEND5   DS    0H
+         MVI   AC,5                AUTH ERROR
+         B     ABENDX
+*
+ABENDX   DS    0H
+         STM   R0,R15,AREG
+*
+*        LA    R2,AREG
+*        MVC   REGCNT,=F'-1'
+*
+ABENDX2  EQU   *
+*        LA    R0,1
+*        A     R0,REGCNT
+*        ST    R0,REGCNT
+*        L     R14,0(,R2)
+*
+*        LINEDIT TEXT='R..: ........',                                 X
+               COMP=NO,MF=(E,LINELIST),RENT=YES,DOT=NO,                X
+               SUB=(DECA,REGCNT,HEX,(R14))
+*
+*        LA    R2,4(,R2)
+*        LA    R0,AREG+L'AREG
+*        CR    R2,R0
+*        BL    ABENDX2
+*
+         XR    R1,R1
+         IC    R1,AC
+*
+         ABEND (1),DUMP
+         EJECT
+*---------------------------------------------------------------------*
+*        TYPE 1 COMPARISON ALGORITHM                                  *
+*                                                                     *
+*        -COMPARE B(J) WITH A(N), A(N-1), ... A(1)                    *
+*---------------------------------------------------------------------*
+*
+TYPE1    WHCSBI10
+         L     RFILB,LARGER        POINT TO FILE C/B'S
+         L     RFILA,SMALLER       .
+*
+* GET FIRST B-RECORD:
+*
+         MVC   FILPTR-FILSECT(L'FILPTR,RFILB),FILFIRST-FILSECT(RFILB)
+         MVC   FILSEQ-FILSECT(L'FILSEQ,RFILB),=F'1'
+         LR    R1,RFILB            BUILD LEN FIELD
+         BAL   R14,URECLEN         .
+         ST    R15,FILCURRL-FILSECT(,RFILB)
+*
+* GET LAST A-RECORD:
+*
+TYP1BGNA EQU   *
+         MVC   FILPTR-FILSECT(L'FILPTR,RFILA),FILLAST-FILSECT(RFILA)
+         MVC   FILSEQ-FILSECT(L'FILSEQ,RFILA),FILCNT-FILSECT(RFILA)
+         LR    R1,RFILA            BUILD LEN FIELD
+         BAL   R14,URECLEN         .
+         ST    R15,FILCURRL-FILSECT(,RFILA)
+         EJECT
+*---------------------------------------------------------------------*
+*        TYPE 1 COMPARISON ALGORITHM                                  *
+*                                                                     *
+*        -COMPARE A(I) WITH B(J) VIA CLCL                             *
+*---------------------------------------------------------------------*
+*
+* FIRST GENERATE CLCL PTR'S FOR REC-A:
+*
+TYP1NXTA EQU   *
+         L     R0,FILPTR-FILSECT(,RFILA)
+         AL    R0,FILRDLEN-FILSECT(,RFILA)
+         AL    R0,FILFDSP-FILSECT(,RFILA)
+         L     R1,FILCURRL-FILSECT(,RFILA)
+         SL    R1,FILFDSP-FILSECT(,RFILA)
+         ICM   R2,15,FILFLEN-FILSECT(RFILA)
+         BZ    TYP1RECB
+         CLR   R1,R2
+         BNH   TYP1RECB
+         LR    R1,R2
+*
+* THEN GENERATE CLCL PTR'S FOR REC-B:
+*
+TYP1RECB EQU   *
+         L     R14,FILPTR-FILSECT(,RFILB)
+         AL    R14,FILRDLEN-FILSECT(,RFILB)
+         AL    R14,FILFDSP-FILSECT(,RFILB)
+         L     R15,FILCURRL-FILSECT(,RFILB)
+         SL    R15,FILFDSP-FILSECT(,RFILB)
+         ICM   R2,15,FILFLEN-FILSECT(RFILB)
+         BZ    TYP1PAD
+         CLR   R15,R2
+         BNH   TYP1PAD
+         LR    R15,R2
+*
+* PAD CHARACTER:
+*
+TYP1PAD  EQU   *
+         ICM   R15,8,COMPPAD
+*
+* COMPARE:
+*
+         CLCL  R0,R14
+         BNE   TYP1NEXT
+*
+         BAL   R14,MATCH           PERFORM MATCH PROCESSING
+         BNZ   TYP1EXIT            (ERROR)
+         EJECT
+*---------------------------------------------------------------------*
+*        TYPE 1 COMPARISON ALGORITHM                                  *
+*                                                                     *
+*        -NO MATCH OR MATCH CLEANUP: POINT TO NEXT A(I)               *
+*        -IF ALL A(I) PROCESSED, GET NEXT B(J) AND RESTART A-SCAN     *
+*---------------------------------------------------------------------*
+*
+TYP1NEXT EQU   *
+         CLC   FILPTR-FILSECT(L'FILPTR,RFILA),FILFIRST-FILSECT(RFILA)
+         BE    TYP1NEWB            END OF BACKWARD 'A' COMPARE
+         LR    R1,RFILA            BACK SPACE A RECORD
+         BAL   R14,BACKPTR         .
+         B     TYP1NXTA            KEEP COMPARING...
+*
+TYP1NEWB DS    0H
+         CLC   FILPTR-FILSECT(L'FILPTR,RFILB),FILLAST-FILSECT(RFILB)
+         BE    TYP1FIN             END OF COMPARE CYCLE...
+         LR    R1,RFILB            POINT TO NEXT RECORD
+         BAL   R14,FORWPTR         .
+         B     TYP1BGNA            RESTART COMPARE.
+*
+TYP1FIN  DS    0H
+         XR    R15,R15             SHOW OK
+*
+TYP1EXIT EQU   *
+         WHCSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        TYPE 2 COMPARISON ALGORITHM                                  *
+*                                                                     *
+*        -COMPARE B(J) WITH A(N), A(N-1), ... A(1)                    *
+*---------------------------------------------------------------------*
+*
+TYPE2    WHCSBI10
+         L     RFILA,SMALLER       POINT TO FILE C/B'S
+         L     RFILB,LARGER        .
+*
+* MAINTAIN THROUGHOUT SUBROUTINE:
+*
+         L     R0,FILLRECL-FILSECT(,RFILB)
+         ICM   R2,15,FILFLEN-FILSECT(RFILB)
+         BNZ   TYP21
+         LR    R2,R0
+*
+TYP21    EQU   *
+         BCTR  R2,0                MAINTAIN THROUGHOUT FOR 'EX'
+*
+         MVC   FILPTR-FILSECT(L'FILPTR,RFILB),FILFIRST-FILSECT(RFILB)
+         MVC   FILSEQ-FILSECT(L'FILSEQ,RFILB),=F'1'
+         MVC   FILCURRL-FILSECT(L'FILCURRL,RFILB),FILLRECL-FILSECT(RFILX
+               B)
+         L     R14,FILFIRS2-FILSECT(,RFILB)
+*
+TYP2BGNA EQU   *
+         MVC   FILPTR-FILSECT(L'FILPTR,RFILA),FILLAST-FILSECT(RFILA)
+         MVC   FILSEQ-FILSECT(L'FILSEQ,RFILA),FILCNT-FILSECT(RFILA)
+         MVC   FILCURRL-FILSECT(L'FILCURRL,RFILA),FILLRECL-FILSECT(RFILX
+               A)
+         L     R15,FILLAS2-FILSECT(,RFILA)
+         EJECT
+*---------------------------------------------------------------------*
+*        TYPE 1 COMPARISON ALGORITHM                                  *
+*                                                                     *
+*        -COMPARE A(I) WITH B(J) VIA EX/CLC                           *
+*---------------------------------------------------------------------*
+*
+* ON EQUAL COMPARE, UPDATE FILE C/B PTR'S
+*
+TYP2NXTA EQU   *
+         EX    R2,TYP2CLC
+         BNE   TYP2NEXT
+*
+         STM   R14,R2,TYP2SAVE     SAVE STATUS
+*
+         SL    R14,FILFDSP-FILSECT(,RFILB)
+         ST    R14,FILPTR-FILSECT(,RFILB)
+         XR    R0,R0
+         LR    R1,R14
+         S     R1,FILFIRST-FILSECT(,RFILB)
+         D     R0,FILLRECL-FILSECT(,RFILB)
+         LA    R1,1(,R1)
+         ST    R1,FILSEQ-FILSECT(,RFILB)
+*
+         SL    R15,FILFDSP-FILSECT(,RFILA)
+         ST    R15,FILPTR-FILSECT(,RFILA)
+         XR    R0,R0
+         LR    R1,R15
+         S     R1,FILFIRST-FILSECT(,RFILA)
+         D     R0,FILLRECL-FILSECT(,RFILA)
+         LA    R1,1(,R1)
+         ST    R1,FILSEQ-FILSECT(,RFILA)
+*
+         BAL   R14,MATCH           PERFORM MATCH PROCESSING
+         BNZ   TYP2EXIT            (ERROR)
+*
+         LM    R14,R2,TYP2SAVE     RESTORE STATUS
+         EJECT
+*---------------------------------------------------------------------*
+*        TYPE 2 COMPARISON ALGORITHM                                  *
+*                                                                     *
+*        -NO MATCH OR MATCH CLEANUP: POINT TO NEXT A(I)               *
+*        -IF ALL A(I) PROCESSED, GET NEXT B(J) AND RESTART A-SCAN     *
+*---------------------------------------------------------------------*
+*
+TYP2NEXT EQU   *
+         CL    R15,FILFIRS2-FILSECT(,RFILA)
+         BE    TYP2NEWB            END OF BACKWARD 'A' COMPARE
+         SLR   R15,R0              BACK SPACE A RECORD
+         B     TYP2NXTA            KEEP COMPARING...
+*
+TYP2NEWB DS    0H
+         CL    R14,FILLAS2-FILSECT(,RFILB)
+         BE    TYP2FIN             END OF COMPARE CYCLE...
+         ALR   R14,R0              POINT TO NEXT RECORD
+         B     TYP2BGNA            RESTART COMPARE.
+*
+TYP2FIN  DS    0H
+         XR    R15,R15             SHOW OK
+*
+TYP2EXIT EQU   *
+         WHCSBX10 PASS=CC
+*
+TYP2CLC  CLC   0(0,R14),0(R15)
+         EJECT
+*---------------------------------------------------------------------*
+*        SUBROUTINE: MATCH         (PROCESS RECORD MATCH)             *
+*                                                                     *
+*        -MATCH: FIND LCS SETS THAT A(I) AND A(I-1) BELONG TO         *
+*                IF SAME A(I) BELONGS IN NEXT SET                     *
+*---------------------------------------------------------------------*
+*
+MATCH    WHCSBI10
+         L     R1,FILSEQ-FILSECT(,RFILA)
+         BAL   R14,FINDSET
+         LR    R2,R15              SAVE SET ID
+         SH    R1,=H'1'            SEE IF LAST (I-1) IN SAME SET
+         BAL   R14,FINDSET         .
+         CLR   R2,R15              ?
+         BNE   MATCHFIN            NOT...UNIMPORTANT MATCH.
+*
+*        TM    OPNTAB+C'1',OPNON
+*        BZ    MATCH1
+*
+*        STM   R0,R15,DIAGSAVE
+*        L     R0,FILSEQ-FILSECT(,RFILA)
+*        L     R14,FILSEQ-FILSECT(,RFILB)
+*        LA    R2,1(,R2)
+*
+*        LINEDIT TEXT='==> MATCH (A,B): (.....,.....) LCS=.....',      X
+               DOT=NO,RENT=YES,MF=(E,LINELIST),                        X
+               SUB=(DEC,(R0),DEC,(R14),DEC,(R2))
+*
+*        LM    R0,R15,DIAGSAVE
+         EJECT
+*---------------------------------------------------------------------*
+*        SUBROUTINE: MATCH         (PROCESS RECORD MATCH)             *
+*                                                                     *
+*        -MATCH: FIND LCS SETS THAT A(I) AND A(I-1) BELONG TO         *
+*                IF SAME A(I) BELONGS IN NEXT SET                     *
+*---------------------------------------------------------------------*
+*
+MATCH1   EQU   *
+         LR    R2,R15
+         MH    R2,=Y(LCSSECL)      POINT TO INDEX ENTRY
+         AL    R2,LCSARRAD         .
+         CL    R2,LCSLEVEL         NEW LCS HEIGHT REACHED?
+         BL    MATCH2              NO...
+*
+         MVC   LCSMARK-LCSSECT+LCSSECL(L'LCSMARK,R2),LCSMARK-LCSSECT(R2X
+               )
+         XC    LCSPTR-LCSSECT+LCSSECL(L'LCSPTR,R2),LCSPTR-LCSSECT+LCSSEX
+               CL(R2)
+         XC    LCSLAST-LCSSECT+LCSSECL(L'LCSLAST,R2),LCSLAST-LCSSECT+LCX
+               SSECL(R2)
+         LA    R0,LCSSECL(,R2)
+         ST    R0,LCSLEVEL         U/D LAST LCS ENTRY PTR
+*
+MATCH2   EQU   *
+         STH   R1,LCSMARK-LCSSECT(,R2)  MARKER = MARKER - 1
+         LA    R2,LCSSECL(,R2)
+         EJECT
+*---------------------------------------------------------------------*
+*        SUBROUTINE: MATCH         (PROCESS RECORD MATCH)             *
+*                                                                     *
+*        (MATCH: LCS SETS ARE UPDATED)                                *
+*                                                                     *
+*        -BUILD NODE DATA (EXCEPT FOR BACKCHAIN)                      *
+*        -CHAIN TO TREE                                               *
+*---------------------------------------------------------------------*
+*
+         LA    R1,NODESECL         GET NODE STORAGE
+         BAL   R14,ALLOC           .
+         BZ    MATCHERR            UNAVAILABLE....
+         A     R1,NODSTORA         TALLY
+         ST    R1,NODSTORA         .
+         LR    RNODE,R15           =>
+         XC    NODESECT(NODESECL),NODESECT
+         MVC   NODESUBA,FILSEQ-FILSECT+L'FILSEQ-L'NODESUBA(RFILA)
+         MVC   NODESUBB,FILSEQ-FILSECT+L'FILSEQ-L'NODESUBB(RFILB)
+*
+* CHAIN NEW NODE TO LCS INDEX ARRAY (OR LATERAL PTR):
+*
+         ICM   R1,7,LCSLAST-LCSSECT(R2) U/D ANCHOR IF REQUIRED
+         BNZ   MATCH3              .
+         STCM  RNODE,7,LCSPTR-LCSSECT(R2)
+         STCM  RNODE,7,LCSLAST-LCSSECT(R2)
+         B     MATCH4              END UPDATE.
+*
+MATCH3   EQU   *
+         STCM  RNODE,7,NODENEXT-NODESECT(R1)
+         STCM  RNODE,7,LCSLAST-LCSSECT(R2) U/D LAST PTR
+         EJECT
+*---------------------------------------------------------------------*
+*        SUBROUTINE: MATCH         (PROCESS RECORD MATCH)             *
+*                                                                     *
+*        (MATCH: LCS SETS ARE UPDATED)                                *
+*                                                                     *
+*        -BACK CHAIN NODE JUST ENTERED TO A S(K-1) NODE               *
+*         WHOSE I, A(I) IS LARGEST OF ALL BELONGING TO S(K-1)         *
+*         BUT LESS THAN I, A(I), JUST ENTERED.                        *
+*---------------------------------------------------------------------*
+*
+* IF LCS IS GREATER THAN ONE, LOOK UP LAST HIT FOR (LCS-1)
+* TO CHAIN DOWN STRUCTURE:
+*
+MATCH4   EQU   *
+         CL    R2,LCSL1PTR         LCS 1?
+         BE    MATCHFIN            YES, NO BACK CHAIN.
+         SH    R2,=Y(LCSSECL)      LOOK AT LCS-1 CHAIN
+         LR    R14,RNODE           SAVE CURRENT NODE PTR
+         ICM   RNODE,7,LCSPTR-LCSSECT(R2) GET NODE(S)
+*
+*        TM    OPNTAB+C'3',OPNON
+*        BZ    MATCH4B
+*
+*        LR    R15,RLCS
+*        S     R15,LCSARRAD
+*        XR    R14,R14
+*        D     R14,=A(LCSSECL)
+*        LR    R14,R15
+*
+*        LINEDIT TEXT='NODE CHAIN STARTS AT ...... (LCS .....)',       X
+               DOT=NO,MF=(E,LINELIST),RENT=YES,                        X
+               SUB=(HEX,(RNODE),DEC,(R14))
+*
+MATCH4B  EQU   *
+*
+MATCH5   EQU   *
+*        TM    OPNTAB+C'3',OPNON
+*        BZ    MATCH5B
+*
+*        STM   R0,R15,DIAGSAVE
+*        XR    R0,R0
+*        ICM   R0,3,NODESUBA
+*        L     R14,FILSEQ-FILSECT(,RFILA)
+*
+*        LINEDIT TEXT='COMPARE NODE A(.....) : FILE A(.....)',         X
+               DOT=NO,RENT=YES,MF=(E,LINELIST),                        X
+               SUB=(DEC,(R0),DEC,(R14))
+*
+*        LM    R0,R15,DIAGSAVE
+*
+MATCH5B  EQU   *
+         CLC   NODESUBA,FILSEQ-FILSECT+L'FILSEQ-L'NODESUBA(RFILA)
+         BL    MATCH7              POSSIBLE PREDECESSOR? ... YES
+         ICM   RNODE,7,NODENEXT    INSPECT NEXT NODE
+         BNZ   MATCH5B             GOT ONE...
+         B     ABEND3              NO - UNEXPECTED
+*
+MATCH7   DS    0H
+         STCM  RNODE,7,NODEBACK-NODESECT(R14)
+*
+MATCHFIN EQU   *
+         XR    R15,R15             SHOW SUCCESSFUL PROCESS
+         B     MATCHX              END
+*
+MATCHERR DS    0H
+         LA    R15,4               SHOW ERROR
+*
+MATCHX   EQU   *
+         WHCSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        PRINT A DETAIL LINE                                          *
+*---------------------------------------------------------------------*
+*
+PRINT    WHCSBI10
+         XR    R0,R0               TEST IF NEW PAGE NEEDED
+         IC    R0,PCC              .
+         A     R0,LINCNT           .
+         C     R0,LINLIM           .
+         BNH   PRINT2              . NOT NEEDED
+*
+         LA    R0,1                COUNT PAGES
+         A     R0,PAGCOUNT         .
+         ST    R0,PAGCOUNT         .
+         LA    R1,HPAG             EDIT
+         BAL   R14,EDITNO          .
+*
+         PUT   SYSLOG,H1A
+*
+         PUT   SYSLOG,H1B
+*
+         PUT   SYSLOG,H1C
+*
+         PUT   SYSLOG,H1D
+         EJECT
+*---------------------------------------------------------------------*
+*        PRINT A DETAIL LINE                                          *
+*---------------------------------------------------------------------*
+*
+         PUT   SYSLOG,H2
+*
+         PUT   SYSLOG,H3
+*
+         PUT   SYSLOG,H5
+*
+         PUT   SYSLOG,H4
+         EJECT
+*---------------------------------------------------------------------*
+*        PRINT A DETAIL LINE                                          *
+*---------------------------------------------------------------------*
+*
+         TM    PROCESS,PROCPRTD    PRINTING DATA?
+         BZ    PRINT1B             NO...
+*
+         PUT   SYSLOG,H6           ISSUE DATA SUBHEADINGS
+*
+*        PUT   SYSLOG,H7
+*
+PRINT1B  EQU   *
+         LA    R0,13
+         ST    R0,LINCNT           UPDATE LINE COUNT
+         MVI   PCC,$SPACE2
+*
+PRINT2   EQU   *
+         BAL   R14,PRINTUNC        PRINT RECORD
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        PRINT A LINE UNCONDITIONALLY                                 *
+*        (DO NOT TEST LINE COUNTER)                                   *
+*---------------------------------------------------------------------*
+*
+PRINTUNC WHCSBI10
+         XR    R0,R0               TALLY LINES
+         IC    R0,PCC              .
+         A     R0,LINCNT           .
+         ST    R0,LINCNT           .
+         TR    PCC,=C'+ 0-'
+*
+         PUT   SYSLOG,PLINE        OUTPUT RECORD
+*
+         MVI   PCC,$SPACE1         CLEAR
+         MVI   PDATA,$BLANK
+         MVC   PDATA+1(L'PDATA-1),PDATA
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*           VALIDATE AND ENCODE A NUMERIC STRING                      *
+*            ...WITH TRAILING BLANKS                                  *
+*                                                                     *
+*            R1 => STRING START ADDR                                  *
+*---------------------------------------------------------------------*
+*
+CHECKNUM WHCSBI10
+         LR    R15,R1
+         LA    R1,8(,R15)
+         TRT   0(8,R15),BLANKTAB
+         LR    R14,R1
+         SR    R14,R15
+         BZ    CHECKNUX
+         BCTR  R14,0
+         EX    R14,CHECKNI1
+         BNZ   CHECKNUX
+         EX    R14,CHECKNI2
+         CVB   R15,DW
+         B     CHECKNR
+*
+CHECKNUX DS    0H
+         LH    R15,=H'-1'
+*
+CHECKNR  EQU   *
+         WHCSBX10 PASS=CC
+*
+CHECKNI1 TRT   0(0,R15),NUMTAB
+CHECKNI2 PACK  DW,0(0,R15)
+         EJECT
+*---------------------------------------------------------------------*
+*        SET HIGHEST RETURN CODE PASSED                               *
+*---------------------------------------------------------------------*
+*
+SETRCODE WHCSBI10
+         C     R1,RETURNC          KEEP HIGHER R/C PASSED
+         BNH   SETRCODX            .
+         ST    R1,RETURNC          .
+*
+SETRCODX EQU   *
+         WHCSBX10                     .
+         EJECT
+*---------------------------------------------------------------------*
+*        READ AND STORE COMPARAND FILE DATA                           *
+*                                                                     *
+*        -ISSUE GET                                                   *
+*        -SAVE RCD LEN/ADDR                                           *
+*        -TALLY                                                       *
+*---------------------------------------------------------------------*
+*
+READCMP  WHCSBI10
+         LR    RFIL,R1             => COMPARAND FILE CB
+*
+READCMP1 EQU   *
+         L     R2,FILDCBA
+*
+         GET   (R2)
+*
+         LH    R0,DCBLRECL-IHADCB(,R2)
+         TM    DCBRECFM-IHADCB(R2),DCBRECU
+         BO    READCMP2
+         TM    DCBRECFM-IHADCB(R2),DCBRECV
+         BZ    READCMP2
+         SH    R0,=Y($RDWLEN)
+         LA    R1,$RDWLEN(,R1)
+*
+READCMP2 EQU   *
+         ST    R1,FILCURRA         SAVE ADDRESS
+         ST    R0,FILCURRL         AND LENGTH
+         LA    R15,1               COUNT
+         A     R15,FILCNT          .
+         ST    R15,FILCNT          .
+         EJECT
+*---------------------------------------------------------------------*
+*        READ AND STORE COMPARAND FILE DATA                           *
+*                                                                     *
+*        -CHECK THAT RECORD LENGTH NOT LESS THAN COLUMN BEGIN         *
+*---------------------------------------------------------------------*
+*
+         CLC   FILCURRL,FILFDSP
+         BH    READCMP0
+*
+         MVC   PMSG(L'MSGFLNX1),MSGFLNX1
+         L     R0,FILCNT
+         LA    R1,PMSG+L'MSGFLNX1
+         BAL   R14,EDITNO
+         MVC   0(L'MSGFLNX2,R15),MSGFLNX2
+         LA    R15,L'MSGFLNX2(,R15)
+         MVC   0(L'FILDESCR,R15),FILDESCR
+         LA    R1,L'FILDESCR(,R15)
+         TRT   0(L'FILDESCR,R15),SCANB
+         MVC   0(L'MSGFLNX3,R1),MSGFLNX3
+         BAL   R14,PRINT
+         LA    R1,XFILERR
+         BAL   R14,SETRCODE
+         OI    PROCESS,PROCLERR
+         B     READCMP1
+*
+MSGFLNX1 DC    C'&WHRN.016E RECORD ('
+MSGFLNX2 DC    C') IN '
+MSGFLNX3 DC    C' FILE IS SHORTER THAN COLUMN SPECIFICATION'
+         EJECT
+*---------------------------------------------------------------------*
+*        READ AND STORE COMPARAND FILE DATA                           *
+*                                                                     *
+*        -COMPUTE STORAGE REQ'D, TALLY, AND ALLOCATE                  *
+*                                                                     *
+*                                                                     *
+*---------------------------------------------------------------------*
+*
+READCMP0 DS    0H
+         L     R1,FILCURRL         GET AMOUNT OF STORAGE FOR RCD
+         A     R1,FILRDLEN         . (PUT R/D FRONT AND BACK)
+         A     R1,FILRDLEN         .
+         LR    R0,R1               TALLY TOTAL REQUIRED
+         A     R0,FILSTORR         .
+         ST    R0,FILSTORR         .
+         BAL   R14,ALLOC           .
+         BZ    READCMP1            (OUT OF STORAGE - DO NOT STORE)
+*
+         ST    R15,FILLAST         SAVE ADDRESS
+         CLC   FILCNT,=F'1'        U/D FIRST FIELD IF REQ'D
+         BNE   READCMP3            .
+         ST    R15,FILFIRST        .
+*
+READCMP3 EQU   *
+         L     R1,FILRDLEN         BUILD RCD DESCR BYTES IF REQ'D
+         SH    R1,=H'1'            .
+         BM    READCMP4            .
+         LA    R14,FILCURRL+L'FILCURRL BUILD 1ST R/D
+         S     R14,FILRDLEN        .
+         EX    R1,READCMPR         .
+         A     R15,FILRDLEN        .
+         A     R15,FILCURRL        .
+         EX    R1,READCMPR         .
+*
+READCMP4 EQU   *
+         L     R14,FILLAST         GET ALLOCATION PTR
+         A     R14,FILRDLEN        .
+         L     R15,FILCURRL        GET LENGTH
+         LR    R1,R15              COPY FOR MVCL
+         L     R0,FILCURRA         SOURCE
+         MVCL  R14,R0              COPY
+         B     READCMP1
+*
+READCMPR MVC   0(0,R15),0(R14)     BUILD 1ST R/D
+         EJECT
+*---------------------------------------------------------------------*
+*        READ AND STORE COMPARAND FILE DATA                           *
+*                                                                     *
+*        END -OF FILE:                                                *
+*                                                                     *
+*        -BUILD FIELDS FOR TYPE 2 ALGORITHM IN CASE WE USE IT         *
+*---------------------------------------------------------------------*
+*
+READCMPE DS    0H
+         L     R0,FILFIRST         UPDATE TEST 'START' FIELD
+         A     R0,FILFDSP          FOR ALG 2
+         ST    R0,FILFIRS2
+         L     R0,FILLAST          UPDATE TEST 'LAST' FIELD
+         A     R0,FILFDSP          FOR ALG 2
+         ST    R0,FILLAS2
+         EJECT
+*---------------------------------------------------------------------*
+*        READ AND STORE COMPARAND FILE DATA                           *
+*                                                                     *
+*        END -OF FILE:                                                *
+*                                                                     *
+*        -IF NO ERRORS READING COMPARAND DATA, RETURN 0               *
+*        -OTHERWISE, RETURN 4                                         *
+*---------------------------------------------------------------------*
+*
+         MVC   PMSG(L'MSGRCNT1),MSGRCNT1
+         MVC   PMSG+L'MSGRCNT1(L'FILDESCR),FILDESCR
+         LA    R1,PMSG+L'MSGRCNT1+L'FILDESCR
+         TRT   PMSG+L'MSGRCNT1(L'FILDESCR),SCANB
+         MVC   0(L'MSGRCNT2,R1),MSGRCNT2
+         L     R0,FILCNT
+         LA    R1,L'MSGRCNT2(,R1)
+         BAL   R14,EDITNO
+         MVC   0(L'MSGRCNT3,R15),MSGRCNT3
+         BAL   R14,PRINT
+*
+         MVC   PMSG(L'MSGISRQ1),MSGISRQ1
+         MVC   PMSG+L'MSGISRQ1(L'FILDESCR),FILDESCR
+         LA    R1,PMSG+L'MSGISRQ1+L'FILDESCR
+         TRT   PMSG+L'MSGISRQ1(L'FILDESCR),SCANB
+         MVC   0(L'MSGISRQ2,R1),MSGISRQ2
+         L     R0,FILSTORR
+         AH    R0,=Y($K-1)
+         SRL   R0,10
+         LA    R1,L'MSGISRQ2(,R1)
+         BAL   R14,EDITNO
+         MVC   0(L'MSGISRQ3,R15),MSGISRQ3
+         BAL   R14,PRINT
+*
+READCMPX EQU   *
+         WHCSBX10
+*
+MSGRCNT1 DC    C'&WHRN.017I '
+MSGRCNT2 DC    C' FILE CONTAINS '
+MSGRCNT3 DC    C' RECORD(S)'
+*
+MSGISRQ1 DC    C'&WHRN.018I STORAGE REQUIRED FOR '
+MSGISRQ2 DC    C' FILE DATA: '
+MSGISRQ3 DC    C'K'
+         EJECT
+*---------------------------------------------------------------------*
+*        OPEN  COMPARAND FILE                                         *
+*                                                                     *
+*        -ISSUE RDJFCB TO GET DSN / CHECK FOR ERROR                   *
+*        -ISSUE OPEN / CHECK FOR ERROR                                *
+*---------------------------------------------------------------------*
+*
+OPENCMP  WHCSBI10
+         LR    RFIL,R1             => FILE CB
+*
+* BUILD RDJFCB JFCB PTR:
+*
+         MVI   EXITWORD,X'87'
+         LA    R0,JFCBSTOR
+         STCM  R0,7,EXITWORD+1
+         L     R2,FILDCBA
+         MVC   FILDDNAM,DCBDDNAM-IHADCB(R2)
+         LA    R0,EXITWORD
+         STCM  R0,7,DCBEXLSA-IHADCB(R2)
+*
+         WHCLST10 ((R2),$OPENI),CB=LIST,SVC=$SVCRDJ
+*
+         LTR   R15,R15             CHECK RDJFCB R/C
+         BNZ   OPENCMPF
+*
+* RESET EXIT LIST PTR AND OPEN:
+*
+         XC    DCBEXLSA-IHADCB(L'DCBEXLSA,R2),DCBEXLSA-IHADCB(R2)
+*
+         WHCLST10 ((R2),$OPENI),CB=LIST,SVC=$SVCOPN
+*
+         TM    DCBOFLGS-IHADCB(R2),DCBOFOPN CHK SUCCESSFUL OPEN FLAGS
+         BZ    OPENCMPF
+         EJECT
+*---------------------------------------------------------------------*
+*        OPEN  COMPARAND FILE                                         *
+*                                                                     *
+*        -DETERMINE WHAT LENGTH RECORD DESCRIPTOR FIELD TO USE        *
+*         (0 FOR RECFM F FILES)                                       *
+*---------------------------------------------------------------------*
+*
+* DECIDE WHAT LENGTH BYTE TO USE (0 ASSUMED):
+*
+         TM    DCBRECFM-IHADCB(R2),DCBRECU
+         BO    OPENCRFU            RECFM U...
+         TM    DCBRECFM-IHADCB(R2),DCBRECF
+         BO    OPENCRFF            FIXED = 0
+         LH    R0,DCBLRECL-IHADCB(,R2) RECFM V...
+         SH    R0,=Y($RDWLEN)
+         ST    R0,FILLRECL
+         MVC   FILRDLEN,=F'2'
+         CL    R0,=F'255'
+         BH    OPENCMSG
+         MVC   FILRDLEN,=F'1'
+         B     OPENCMSG
+*
+OPENCRFF DS    0H
+         LH    R0,DCBLRECL-IHADCB(,R2)
+         ST    R0,FILLRECL
+         B     OPENCMSG
+*
+OPENCRFU DS    0H
+         LH    R0,DCBBLKSI-IHADCB(,R2) RECFM U...
+         ST    R0,FILLRECL
+         MVC   FILRDLEN,=F'2'
+         CL    R0,=F'255'
+         BH    OPENCMSG
+         MVC   FILRDLEN,=F'1'
+         EJECT
+*---------------------------------------------------------------------*
+*        OPEN  COMPARAND FILE                                         *
+*                                                                     *
+*        -ISSUE INFORMATIVE MESSAGES                                  *
+*---------------------------------------------------------------------*
+*
+OPENCMSG EQU   *
+         MVC   FILDSN,JFCBDSNM     SAVE COPY OF DSN
+         MVC   PMSG(L'MSGIDSN1),MSGIDSN1
+         MVC   PMSG+L'MSGIDSN1(L'FILDESCR),FILDESCR
+         LA    R1,PMSG+L'MSGIDSN1+L'FILDESCR
+         TRT   PMSG+L'MSGIDSN1(L'FILDESCR),SCANB
+         MVC   0(L'MSGIDSN2,R1),MSGIDSN2
+         LA    R15,L'MSGIDSN2(,R1)
+         MVC   0(L'FILDDNAM,R15),FILDDNAM
+         LA    R1,L'FILDDNAM(,R15)
+         TRT   0(L'FILDDNAM,R15),SCANB
+         MVC   0(L'MSGIDSN3,R1),MSGIDSN3
+         LA    R15,L'MSGIDSN3(,R1)
+*
+         WHCDSN11 SLOC=JFCBDSNM,OLOC=(R15),CB=DSNCB,PRMA=PARMADDR
+*
+         MVC   0(L'MSGIDSN4,R15),MSGIDSN4
+         BAL   R14,PRINT
+         XR    R15,R15
+         B     OPENCMPX
+*
+MSGIDSN1 DC    C'&WHRN.019I DATASET NAME OF '
+MSGIDSN2 DC    C' FILE ('
+MSGIDSN3 DC    C') IS '''
+MSGIDSN4 DC    C''''
+         EJECT
+*---------------------------------------------------------------------*
+*        OPEN  COMPARAND FILE                                         *
+*                                                                     *
+*        -OPEN FAILED / ISSUE MESSAGE AND RETURN CODE                 *
+*---------------------------------------------------------------------*
+*
+OPENCMPF DS    0H
+         MVC   PMSG(L'MSGOERR1),MSGOERR1
+         MVC   PMSG+L'MSGOERR1(L'FILDDNAM),FILDDNAM
+         LA    R1,PMSG+L'MSGOERR1+L'FILDDNAM
+         TRT   PMSG+L'MSGOERR1(L'FILDDNAM),SCANB
+         MVC   0(L'MSGOERR2,R1),MSGOERR2
+         BAL   R14,PRINT
+         LA    R1,XOPENERR
+         BAL   R14,SETRCODE
+         LA    R15,4
+*
+OPENCMPX EQU   *
+         WHCSBX10 PASS=CC
+*
+MSGOERR1 DC    C'&WHRN.020E ERROR OPENING DDNAME ('
+MSGOERR2 DC    C')'
+         EJECT
+*---------------------------------------------------------------------*
+*        CLOSE COMPARAND FILES                                        *
+*---------------------------------------------------------------------*
+*
+CLOSCMP  WHCSBI10
+         LR    RFIL,R1             => FILE CB
+         L     R2,FILDCBA
+*
+         WHCLST10 ((R2),$CLOSD),CB=LIST,SVC=$SVCCLS
+*
+         LR    R1,R2
+         BAL   R14,FREEPOOL
+*
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        EDIT NUMERIC STRING                                          *
+*---------------------------------------------------------------------*
+*
+EDITNO   WHCSBI10
+         CVD   R0,DW               EDIT NUMERIC FIELD
+         LR    R2,R1               SAVE START ADDR
+         MVC   EDITWORK,=XL12'402020202020202020202120'
+         LA    R1,EDITWORK+L'EDITWORK-1
+         EDMK  EDITWORK,DW+2       .
+         BNM   EDITNO1             .
+         BCTR  R1,0                (-)
+         MVI   0(R1),C'-'          .
+*
+EDITNO1  EQU   *
+         LA    R15,EDITWORK+L'EDITWORK-1
+         SLR   R15,R1              .
+         EX    R15,EDITNOMV        BUILD NUMBER
+         LA    R15,1(R2,R15)       NEXT LOCATION
+         WHCSBX10 PASS=R15            RETURN.
+*
+EDITNOMV MVC   0(0,R2),0(R1)       MOVE VAR LEN FIELD
+         EJECT
+*---------------------------------------------------------------------*
+*        ALLOCATE STORAGE FROM POOL                                   *
+*---------------------------------------------------------------------*
+*
+ALLOC    WHCSBI10
+         LR    R0,R1               TOTAL REQUESTS
+         A     R0,ALSTORRQ         .
+         ST    R0,ALSTORRQ         .
+*
+         TM    PROCESS,PROCSTOX    STORAGE EXHAUST?
+         BO    ALLOCEXH            YES...
+*
+         LR    R0,R1               MAKE COPY OF AMT REQUESTED
+         A     R0,ALSTORU          TOTAL USED TO-DATE
+         C     R0,ALSTORL          .GT. WHAT WE HAVE?
+         BH    ALLOCEXH            YES---FINIS.
+         L     R15,ALSTORU         COPY FOR NEW ADDRESS
+         ST    R0,ALSTORU          NEW 'USED'
+         A     R15,ALSTORA         PASS BACK LOC'N
+         B     ALLOCX
+*
+ALLOCEXH DS    0H
+         OI    PROCESS,PROCSTOX    SHOW EXHAUST
+         XR    R15,R15             PASS BACK R/C
+*
+ALLOCX   EQU   *
+         WHCSBX10 PASS=CC
+         EJECT
+*---------------------------------------------------------------------*
+*        FREE DCB BUFFERS                                             *
+*---------------------------------------------------------------------*
+*
+FREEPOOL WHCSBI10
+         FREEPOOL (1)
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        FIND SET THAT 'I' OF A(I) IS IN                              *
+*---------------------------------------------------------------------*
+*
+FINDSET  WHCSBI10
+         STCM  R1,3,BSARG
+         MVC   $BSCARRA,LCSARRAD   BUILD SEARCH PARAM'S
+         L     R1,LCSLEVEL         GET COUNT
+         S     R1,LCSARRAD         .
+         XR    R0,R0               .
+         D     R0,=A(LCSSECL)      .
+         AH    R1,=H'1'            .
+         ST    R1,$BSCARRC         .
+*
+         WHCBSC10 ARRL=LCSSECL,KEYD=LCSMARK-LCSSECT,                   X
+               KEYL=L'LCSMARK,ARGL=L'BSARG,ARGA=BSARG,                 X
+               CB=BSCCB
+*
+         B     *+4(R15)
+         B     FINDSGOT            ARGUMENT FOUND
+         B     FINDSLOW            ARG N/F - LOWER ENTRY PASSED BACK
+         B     FINDSNF             NOT FOUND
+         B     ABEND2
+         EJECT
+*---------------------------------------------------------------------*
+*        FIND SET THAT 'I' OF A(I) IS IN                              *
+*---------------------------------------------------------------------*
+*
+FINDSGOT DS    0H
+         L     R15,$BSCFNDA        GET ADDRESS AND CONVERT TO LCS LEN
+         B     FINDSCAL            .
+*
+FINDSLOW DS    0H
+         L     R15,$BSCFNDA        GET ADDRESS AND CONVERT TO LCS LEN
+         LA    R15,LCSSECL(,R15)
+*
+FINDSCAL EQU   *
+         S     R15,LCSARRAD
+         XR    R14,R14
+         D     R14,=A(LCSSECL)
+         B     FINDSETX
+*
+FINDSNF  DS    0H
+         XR    R15,R15
+*
+FINDSETX EQU   *
+         WHCSBX10 PASS=R15
+         EJECT
+*---------------------------------------------------------------------*
+*        ISSUE STORAGE STATISTICS                                     *
+*---------------------------------------------------------------------*
+*
+STORSTAT WHCSBI10
+         MVC   PMSG(L'MSGSTOS1),MSGSTOS1
+         L     R0,ALSTORL
+         SRL   R0,10
+         LA    R1,PMSG+L'MSGSTOS1
+         BAL   R14,EDITNO
+         MVC   0(L'MSGSTOS2,R15),MSGSTOS2
+         L     R0,ALSTORRQ
+         AH    R0,=Y($K-1)
+         SRL   R0,10
+         LA    R1,L'MSGSTOS2(,R15)
+         BAL   R14,EDITNO
+         MVC   0(L'MSGSTOS3,R15),MSGSTOS3
+         SRDL  R0,32
+         MH    R1,=H'100'
+         D     R0,ALSTORLK
+         LR    R0,R1
+         LA    R1,L'MSGSTOS3(,R15)
+         BAL   R14,EDITNO
+         MVC   0(L'MSGSTOS4,R15),MSGSTOS4
+         BAL   R14,PRINT
+         WHCSBX10
+*
+MSGSTOS1 DC    C'&WHRN.021I STORAGE ALLOCATED: '
+MSGSTOS2 DC    C'K --- LAST STORAGE REQUEST TOTAL: '
+MSGSTOS3 DC    C'K ('
+MSGSTOS4 DC    C'% USED)'
+         EJECT
+*---------------------------------------------------------------------*
+*        ISSUE SEVERITY LEVEL MESSAGE                                 *
+*---------------------------------------------------------------------*
+*
+SEVMSG   WHCSBI10
+         MVC   PMSG(L'MSGSEV1),MSGSEV1
+         L     R0,RETURNC
+         LA    R1,PMSG+L'MSGSEV1
+         BAL   R14,EDITNO
+         MVC   0(L'MSGSEV2,R15),MSGSEV2
+         BAL   R14,PRINT
+         WHCSBX10
+*
+MSGSEV1  DC    C'&WHRN.022I HIGHEST SEVERITY LEVEL SET WAS '
+MSGSEV2  DC    C' '
+         EJECT
+*---------------------------------------------------------------------*
+*        ISSUE NODE STORAGE STATISTICS                                *
+*---------------------------------------------------------------------*
+*
+NODESTAT WHCSBI10
+         MVC   PMSG(L'MSGNSTO1),MSGNSTO1
+         L     R0,NODSTORA
+         AH    R0,=Y($K-1)
+         SRL   R0,10
+         LA    R1,PMSG+L'MSGNSTO1
+         BAL   R14,EDITNO
+         MVC   0(L'MSGNSTO2,R15),MSGNSTO2
+         BAL   R14,PRINT
+         WHCSBX10
+*
+MSGNSTO1 DC    C'&WHRN.023I LAST NODE STORAGE REQUEST TOTAL: '
+MSGNSTO2 DC    C'K'
+         EJECT
+*---------------------------------------------------------------------*
+*        ISSUE LCS LENGTH MESSAGE                                     *
+*---------------------------------------------------------------------*
+*
+LCSLMSG  WHCSBI10
+         MVC   PMSG(L'MSGLCSL1),MSGLCSL1
+         L     R0,LCSLEN
+         LA    R1,PMSG+L'MSGLCSL1
+         BAL   R14,EDITNO
+         MVC   0(L'MSGLCSL2,R15),MSGLCSL2
+         BAL   R14,PRINT
+         NC    LCSLEN,LCSLEN
+         BZ    LCSLMSGX
+*
+* GET # OF SEQUENCES AT THIS LENGTH:
+*
+         L     R1,LCSLEN           POINT TO NODE ANCHOR
+         MH    R1,=Y(LCSSECL)      .
+         A     R1,LCSARRAD         .
+         ICM   R1,7,LCSPTR-LCSSECT(R1)
+         LA    R0,1                COUNTER
+*
+LCSLMSG2 EQU   *
+         ICM   R1,7,NODENEXT-NODESECT(R1)
+         BZ    LCSLMSG3
+         AH    R0,=H'1'
+         B     LCSLMSG2
+         EJECT
+*---------------------------------------------------------------------*
+*        ISSUE LCS LENGTH MESSAGE                                     *
+*---------------------------------------------------------------------*
+*
+LCSLMSG3 DS    0H
+         MVC   PMSG(L'MSGLCSC1),MSGLCSC1
+         LA    R1,PMSG+L'MSGLCSC1
+         BAL   R14,EDITNO
+         MVC   0(L'MSGLCSC2,R15),MSGLCSC2
+         BAL   R14,PRINT
+*
+LCSLMSGX EQU   *
+         WHCSBX10
+*
+MSGLCSL1 DC    C'&WHRN.025I LARGEST SEQUENCE OF RECORDS THAT MATCH IN BX
+               OTH FILES IS '
+MSGLCSL2 DC    C' '
+*
+MSGLCSC1 DC    C'&WHRN.026I THERE ARE '
+MSGLCSC2 DC    C' DIFFERENT SEQUENCES OF THIS LENGTH'
+         EJECT
+*---------------------------------------------------------------------*
+*        ADJUST STORAGE PTRS TO ALLOCATE NEXT REQUEST ON DW           *
+*---------------------------------------------------------------------*
+*
+ALIGN    WHCSBI10
+         L     R1,ALSTORU          GET STORAGE USED
+         AH    R1,=H'7'            ROUND UP TO DW
+         SRL   R1,3                .
+         SLL   R1,3                .
+         S     R1,ALSTORU          .
+         BZ    ALIGNX
+         BAL   R14,ALLOC
+*
+ALIGNX   EQU   *
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        BUILD DSN IN LOCATION POINTED TO BY R1                       *
+*---------------------------------------------------------------------*
+*
+DSN      WHCSBI10
+         LR    R2,R1               => OUTPUT LOCATION
+*
+         WHCDSN11 SLOC=(R0),OLOC=(R2),CB=DSNCB,PRMA=PARMADDR
+*
+         WHCSBX10 PASS=R15
+         EJECT
+*---------------------------------------------------------------------*
+*        BUILD PAIRSTACK FROM LCS WHOSE LAST NODE ENTRY               *
+*        IS PASSED IN R1                                              *
+*---------------------------------------------------------------------*
+*
+BPAIR    WHCSBI10
+         L     R2,PAIRSAD          => LST ENTRY IN STACK
+         A     R2,PAIRSLN          .
+         SH    R2,=Y(PAIRSECL)     .
+*
+BPAIR2   EQU   *
+         MVC   PAIRA-PAIRSECT(L'PAIRA,R2),NODESUBA-NODESECT+L'NODESUBA-X
+               L'PAIRA(R1)
+         MVC   PAIRB-PAIRSECT(L'PAIRB,R2),NODESUBB-NODESECT+L'NODESUBB-X
+               L'PAIRB(R1)
+*
+         TM    PROCESS,PROCCSWP    A/B SWAPPED?
+         BZ    BPAIR2B             NO...
+*
+         XC    PAIRA-PAIRSECT(L'PAIRA,R2),PAIRB-PAIRSECT(R2)
+         XC    PAIRB-PAIRSECT(L'PAIRB,R2),PAIRA-PAIRSECT(R2)
+         XC    PAIRA-PAIRSECT(L'PAIRA,R2),PAIRB-PAIRSECT(R2)
+*
+BPAIR2B  EQU   *
+*        TM    OPNTAB+C'2',OPNON
+*        BZ    BPAIR3
+*        STM   R0,R15,DIAGSAVE
+*        XR    R0,R0
+*        ICM   R0,3,NODESUBA-NODESECT(R1)
+*        XR    R2,R2
+*        ICM   R2,3,NODESUBB-NODESECT(R1)
+*
+*        LINEDIT TEXT='==> BUILD PAIR (A,B): (.....,.....)',           X
+               DOT=NO,RENT=YES,MF=(E,LINELIST),                        X
+               SUB=(DEC,(R0),DEC,(R2))
+*
+*        LM    R0,R15,DIAGSAVE
+*
+BPAIR3   EQU   *
+         SH    R2,=Y(PAIRSECL)     BACKWARDS THROUGH STACK
+         ICM   R1,7,NODEBACK-NODESECT(R1)
+         BNZ   BPAIR2
+*
+BPAIRX   EQU   *
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        GENERATE LISTING OF CHANGED RECORDS                          *
+*                                                                     *
+*        -PRIME FILE C/B'S TO POINT AT FIRST RECORD                   *
+*        -TAKE APPROPRIATE PATH FOR LCS LENGTH 0 OR NOT 0             *
+*                                                                     *
+*        R1: LENGTH OF LCS TO BE PROCESSED                            *
+*---------------------------------------------------------------------*
+*
+GENLIST  WHCSBI10
+         ST    R1,GENLLCS          SAVE ARGUMENT
+         LTR   R1,R1               LCS LEN 0?
+         BZ    GENL0               YES --- DO NOT BUILD PAIRS.
+         MH    R1,=Y(LCSSECL)
+         A     R1,LCSARRAD
+         ICM   R1,7,LCSPTR-LCSSECT(R1)
+         BAL   R14,BPAIR
+*
+GENL0    EQU   *
+         MVC   LINCNT,LINLIM       FORCE NEW PAGE
+         OI    PROCESS,PROCPRTD    SHOW DATA BEING PRINTED
+         MVC   FILPTR-FILSECT+CFIL1,FILFIRST-FILSECT+CFIL1
+         MVC   FILSEQ-FILSECT+CFIL1,=F'1'
+         MVC   FILPTR-FILSECT+CFIL2,FILFIRST-FILSECT+CFIL2
+         MVC   FILSEQ-FILSECT+CFIL2,=F'1'
+         LA    R1,CFIL1
+         BAL   R14,URECLEN
+         ST    R15,FILCURRL-FILSECT+CFIL1
+         LA    R1,CFIL2
+         BAL   R14,URECLEN
+         ST    R15,FILCURRL-FILSECT+CFIL2
+*
+         NC    GENLLCS,GENLLCS     LCS 0?
+         BZ    GENL2I              YES...
+         EJECT
+*---------------------------------------------------------------------*
+*        GENERATE LISTING OF CHANGED RECORDS                          *
+*                                                                     *
+*        -POINT TO BEGINNING OF PAIRS ARRAY                           *
+*        -GENERATE INSERT/DELETES                                     *
+*---------------------------------------------------------------------*
+*
+         MVC   PAIRSPTR,PAIRSAD    START AT BEGINNING
+*
+GENL1    EQU   *
+         L     R2,PAIRSPTR         CHECK FOR DELETIONS FROM BASE
+         XR    R1,R1               GET FIRST COMMON FILE-1 #
+         ICM   R1,3,PAIRB-PAIRSECT(R2)
+         BAL   R14,GENINS          GENERATE INSERT LISTING
+         ICM   R1,3,PAIRA-PAIRSECT(R2)
+         BAL   R14,GENDEL          GENERATE DELETE LISTING
+*
+* NOW WE HAVE PROCESSED ALL GAPS LEADING UP TO COMMON SET OF
+* RECORDS, SO PUBLISH COMMON SET:
+*
+         TM    OPNTAB+C'L',OPNON   (IF LIST OPTION)
+         BZ    GENL1B              .
+         LA    R1,CFIL1            INSERT COMMON DATA (CFIL1/2 SAME)
+         BAL   R14,MOVEDATA        .
+         BAL   R14,EDSEQ1          .
+         BAL   R14,EDSEQ2          .
+         BAL   R14,PRINT           .
+         OI    PROCESS2,PRO2UPDL   SHOW ENTRY IN LISTING
+*
+* U/D RECORDS PTR'S AND GET NEXT SET OF COMMON RECORDS:
+*
+GENL1B   EQU   *
+         LA    R1,CFIL1            UPDATE FILE PTR'S
+         BAL   R14,FORWPTR         .
+         LA    R1,CFIL2            .
+         BAL   R14,FORWPTR         .
+         LA    R2,PAIRSECL         GET NEXT SET OF COMMON RECORDS
+         A     R2,PAIRSPTR         .
+         ST    R2,PAIRSPTR         .
+         C     R2,PAIRSBND         .
+         BL    GENL1               .
+         EJECT
+*---------------------------------------------------------------------*
+*        GENERATE LISTING OF CHANGED RECORDS                          *
+*                                                                     *
+*        -GENERATE CHANGE LISTING FOR RECORDS PASSED LAST COMMON      *
+*         SET                                                         *
+*---------------------------------------------------------------------*
+*
+GENL2I   EQU   *
+         CLC   FILSEQ-FILSECT+CFIL2,FILCNT-FILSECT+CFIL2
+         BH    GENL2D              FILE 2 COMPLETELY PROCESSED
+         LA    R1,1                PUSH LIMIT 1 OVER RECORD CNT
+         A     R1,FILCNT-FILSECT+CFIL2
+         BAL   R14,GENINS          GENERATE INSERT'S
+*
+GENL2D   EQU   *
+         CLC   FILSEQ-FILSECT+CFIL1,FILCNT-FILSECT+CFIL1
+         BH    GENL3               FILE 1 COMPLETELY PROCESSED
+         LA    R1,1                PUSH LIMIT 1 OVER RECORD CNT
+         A     R1,FILCNT-FILSECT+CFIL1
+         BAL   R14,GENDEL          GENERATE DELETE'S
+*
+GENL3    EQU   *
+         TM    PROCESS2,PRO2UPDL   UPDATE LISTING EMPTY?
+         BZ    GENLX               YES...
+         MVI   PCC,$SPACE2
+         MVC   PDATA+(L'PDATA-L'MSGEUL1)/2(L'MSGEUL1),MSGEUL1
+         BAL   R14,PRINT
+*
+GENLX    EQU   *
+         NI    PROCESS,255-PROCPRTD RESET DATA PRINT INDICATOR
+         WHCSBX10
+*
+MSGEUL1  DC    C'==========> END OF UPDATE LISTING <=========='
+         EJECT
+*---------------------------------------------------------------------*
+*        GENERATE 'DELETES' LISTING FOR RECORDS STARTING              *
+*        WITH THAT CURRENTLY POINTED TO BY CFIL1 UP TO                *
+*        BUT NOT INCLUDING THAT WHOSE SEQUENCE # IS PASSED IN R1      *
+*---------------------------------------------------------------------*
+*
+GENDEL   WHCSBI10
+         LR    R0,R1               SAVE COPY
+         C     R1,FILSEQ-FILSECT+CFIL1
+         BE    GENDELX
+         BAL   R14,BGNDLBOX
+         MVC   DEL1,FILSEQ-FILSECT+CFIL1
+*
+GENDEL2  EQU   *
+         MVC   DEL2,FILSEQ-FILSECT+CFIL1
+         LA    R1,CFIL1            INSERT DATA IN DELETE BOX
+         BAL   R14,INSDLBOX        .
+         BAL   R14,FORWPTR         UPDATE REC PTR FOR FILE 1
+         C     R0,FILSEQ-FILSECT+CFIL1
+         BNE   GENDEL2
+         BAL   R14,ENDDLBOX
+*
+         MVC   UPDDEL,UDELLIT      BUILD UPDATE DELETE RECORD
+         L     R0,DEL1
+         LA    R1,UPDDEL+L'UPDDEL
+         BAL   R14,EDITNO
+         L     R0,DEL2
+         C     R0,DEL1
+         BE    GENDEL3
+         MVI   0(R15),C','
+         LA    R1,1(,R15)
+         BAL   R14,EDITNO
+*
+GENDEL3  EQU   *
+         BAL   R14,WRITUPD
+*
+GENDELX  EQU   *
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        GENERATE 'INSERTS' LISTING FOR RECORDS STARTING              *
+*        WITH THAT CURRENTLY POINTED TO BY CFIL2 UP TO                *
+*        BUT NOT INCLUDING THAT WHOSE SEQUENCE # IS PASSED IN R1      *
+*---------------------------------------------------------------------*
+*
+GENINS   WHCSBI10
+         LR    R2,R1               SAVE COPY
+         C     R2,FILSEQ-FILSECT+CFIL2
+         BE    GENINSX
+         BAL   R14,BGNINBOX
+*
+         MVC   UPDINS,UINSLIT      BUILD UPDATE INSERT RECORD
+         L     R0,FILSEQ-FILSECT+CFIL1
+         SH    R0,=H'1'
+         BZ    GENINS0
+         LA    R1,UPDINS+L'UPDINS
+         BAL   R14,EDITNO
+         BAL   R14,WRITUPD
+         B     GENINS2
+*
+GENINS0  DS    0H
+         MVC   UPDINS+L'UPDINS(L'LIBFIRST),LIBFIRST
+         BAL   R14,WRITUPD
+*
+GENINS2  EQU   *
+         LA    R1,CFIL2            INSERT DATA IN INSERT BOX
+         BAL   R14,INSINBOX        .
+*
+         LA    R1,L'UPDREC         BUILD DATA INTO UPDATE REC
+         C     R1,FILCURRL-FILSECT+CFIL2
+         BNH   GENINS3
+         L     R1,FILCURRL-FILSECT+CFIL2
+*
+GENINS3  EQU   *
+         BCTR  R1,0
+         L     R14,FILPTR-FILSECT+CFIL2
+         A     R14,FILRDLEN-FILSECT+CFIL2
+         EX    R1,GENINSM
+         BAL   R14,WRITUPD
+         EJECT
+*---------------------------------------------------------------------*
+*        GENERATE 'INSERTS' LISTING    (CONTINUED)                    *
+*---------------------------------------------------------------------*
+*
+         LA    R1,CFIL2            U/D REC PTR
+         BAL   R14,FORWPTR         .
+         C     R2,FILSEQ-FILSECT+CFIL2
+         BNE   GENINS2
+         BAL   R14,ENDINBOX
+*
+GENINSX  EQU   *
+         WHCSBX10
+*
+GENINSM  MVC   UPDREC(0),0(R14)
+         EJECT
+*---------------------------------------------------------------------*
+*        START UP AN 'INSERT' BOX                                     *
+*---------------------------------------------------------------------*
+*
+BGNINBOX WHCSBI10
+         BAL   R14,KBRES           GET MIN 'LINES REMAINING' REQUIRED
+         A     R15,LINCNT
+         C     R15,LINLIM
+         BL    BGNINB1
+         ST    R15,LINCNT
+*
+BGNINB1  EQU   *
+         MVI   PCC,$SPACE2
+         TM    OPNTAB+C'M',OPNON   ACTION MSG?
+         BZ    BGNINB2             NO...
+         MVC   PMSG(L'INSMSG),INSMSG
+         BAL   R14,PRINT           PRINT LINE
+*
+BGNINB2  EQU   *
+         LA    R1,$BXCH            BUILD BOX TOP
+         BAL   R14,CBOXTOP
+*
+BGNINBX  EQU   *
+         WHCSBX10
+*
+INSMSG   DC    C'===> INSERTED RECORDS FOLLOW . . .'
+         EJECT
+*---------------------------------------------------------------------*
+*        START UP A 'DELETE' BOX                                      *
+*---------------------------------------------------------------------*
+*
+BGNDLBOX WHCSBI10
+         BAL   R14,KBRES           GET MIN 'LINES REMAINING' REQUIRED
+         A     R15,LINCNT
+         C     R15,LINLIM
+         BL    BGNDLB1
+         ST    R15,LINCNT
+*
+BGNDLB1  EQU   *
+         MVI   PCC,$SPACE2
+         TM    OPNTAB+C'M',OPNON   ACTION MSG?
+         BZ    BGNDLB2             NO...
+         MVC   PMSG(L'DELMSG),DELMSG
+         BAL   R14,PRINT           PRINT LINE
+*
+BGNDLB2  EQU   *
+         LA    R1,$BXCH            BUILD BOX TOP IF REQUIRED
+         BAL   R14,CBOXTOP         .
+*
+BGNDLBX  EQU   *
+         WHCSBX10
+*
+DELMSG   DC    C'===> DELETED RECORDS FOLLOW . . .'
+         EJECT
+*---------------------------------------------------------------------*
+*        END AN 'INSERT' BOX                                          *
+*---------------------------------------------------------------------*
+*
+ENDINBOX WHCSBI10
+         LA    R1,$BXCH            BOX BOTTOM IF NECESSARY
+         BAL   R14,CBOXBOT
+         TM    OPNTAB+C'M',OPNON   ACTION MSG?
+         BZ    ENDINB2             NO...
+         MVC   PMSG(L'ENDINMSG),ENDINMSG
+         BAL   R14,PRINT           PRINT LINE
+*
+ENDINB2  EQU   *
+         MVI   PCC,$SPACE2
+*
+ENDINBX  EQU   *
+         WHCSBX10
+*
+ENDINMSG DC    C'===> END OF INSERTED RECORDS'
+         EJECT
+*---------------------------------------------------------------------*
+*        END A 'DELETE' BOX                                           *
+*---------------------------------------------------------------------*
+*
+ENDDLBOX WHCSBI10
+         LA    R1,$BXCH            BOX BOTTOM IF NECESSARY
+         BAL   R14,CBOXBOT
+         TM    OPNTAB+C'M',OPNON   ACTION MSG?
+         BZ    ENDDLB2             NO...
+         MVC   PMSG(L'ENDDLMSG),ENDDLMSG
+         BAL   R14,PRINT           PRINT LINE
+*
+ENDDLB2  EQU   *
+         MVI   PCC,$SPACE2
+*
+ENDDLBX  EQU   *
+         WHCSBX10
+*
+ENDDLMSG DC    C'===> END OF DELETED RECORDS'
+         EJECT
+*---------------------------------------------------------------------*
+*        INSERT A DATA LINE IN AN 'INSERT' BOX                        *
+*---------------------------------------------------------------------*
+*
+INSINBOX WHCSBI10
+         BAL   R14,KRES            GET RESERVED LINES
+         A     R15,LINCNT          .
+         C     R15,LINLIM          END BOX AND RESTART
+         BL    INSINB1             .
+*
+         LA    R1,$BXCH            YES, END BOX IF REQUIRED
+         BAL   R14,CBOXBOT         .
+         MVC   LINCNT,LINLIM       FORCE TOF
+         TM    OPNTAB+C'M',OPNON   MSGS?
+         BZ    INSINB0             NO...
+         MVC   PMSG(L'CINSMSG),CINSMSG
+         BAL   R14,PRINT
+*
+INSINB0  EQU   *
+         LA    R1,$BXCH            RESTART BOX IF REQUIRED
+         BAL   R14,CBOXTOP         .
+*
+INSINB1  EQU   *
+         LA    R1,CFIL2            MOVE DATA IN PRINT LINE
+         BAL   R14,MOVEDATA        .
+         BAL   R14,EDSEQ2          .
+         BAL   R14,CCOL            COLUMNS IF NECESSARY
+         BAL   R14,PRINT           PRINT LINE
+         OI    PROCESS2,PRO2UPDL   SHOW ENTRY IN LISTING
+         WHCSBX10
+*
+CINSMSG  DC    C'===> INSERTED RECORDS, CONTINUED . . .'
+         EJECT
+*---------------------------------------------------------------------*
+*        INSERT A DATA LINE IN AN 'DELETE' BOX                        *
+*---------------------------------------------------------------------*
+*
+INSDLBOX WHCSBI10
+         BAL   R14,KRES            GET RESERVED LINES
+         A     R15,LINCNT          .
+         C     R15,LINLIM          END BOX AND RESTART
+         BL    INSDLB1             .
+*
+         LA    R1,$BXCH            YES, END BOX
+         BAL   R14,CBOXBOT         .
+         MVC   LINCNT,LINLIM       FORCE TOF
+         TM    OPNTAB+C'M',OPNON   MSGS?
+         BZ    INSDLB0             NO...
+         MVC   PMSG(L'CDELMSG),CDELMSG
+         BAL   R14,PRINT
+*
+INSDLB0  EQU   *
+         LA    R1,$BXCH            RESTART BOX IF REQUIRED
+         BAL   R14,CBOXTOP         .
+*
+INSDLB1  EQU   *
+         LA    R1,CFIL1            MOVE DATA IN PRINT LINE
+         BAL   R14,MOVEDATA        .
+         BAL   R14,EDSEQ1          .
+         BAL   R14,CCOL            COLUMNS IF NECESSARY
+         BAL   R14,PRINT           PRINT LINE
+         OI    PROCESS2,PRO2UPDL   SHOW ENTRY IN LISTING
+         WHCSBX10
+*
+CDELMSG  DC    C'===> DELETED RECORDS, CONTINUED . . .'
+         EJECT
+*---------------------------------------------------------------------*
+*        UPDATE RECORD POINTER IN FILE C/B                            *
+*                                                                     *
+*        ROUTINE POINTS FILE C/B TO NEXT RECORD IN BUFFER,            *
+*        UPDATING: FILPTR                                             *
+*                  FILSEQ                                             *
+*                  FILCURRL                                           *
+*---------------------------------------------------------------------*
+*
+FORWPTR  WHCSBI10
+         L     R14,FILPTR-FILSECT(,R1)
+         A     R14,FILCURRL-FILSECT(,R1)
+         A     R14,FILRDLEN-FILSECT(,R1)
+         A     R14,FILRDLEN-FILSECT(,R1)
+         ST    R14,FILPTR-FILSECT(,R1)
+         LA    R0,1
+         A     R0,FILSEQ-FILSECT(,R1)
+         ST    R0,FILSEQ-FILSECT(,R1)
+         BAL   R14,URECLEN
+         ST    R15,FILCURRL-FILSECT(,R1)
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        BACKSPACE THE RECORD POINTER IN A FILE C/B                   *
+*                                                                     *
+*        ROUTINE POINTS FILE C/B TO PREV RECORD IN BUFFER,            *
+*        UPDATING: FILPTR                                             *
+*                  FILSEQ                                             *
+*                  FILCURRL                                           *
+*---------------------------------------------------------------------*
+*
+BACKPTR  WHCSBI10
+         L     R14,FILPTR-FILSECT(,R1)
+         S     R14,FILRDLEN-FILSECT(,R1)
+         XR    R15,R15
+         L     R2,FILRDLEN-FILSECT(,R1)
+         SLL   R2,2
+         LA    R2,BACKINSR(R2)
+         EX    0,0(,R2)
+         ST    R15,FILCURRL-FILSECT(,R1)
+         SR    R14,R15
+         S     R14,FILRDLEN-FILSECT(,R1)
+         ST    R14,FILPTR-FILSECT(,R1)
+         L     R2,FILSEQ-FILSECT(,R1)
+         BCTR  R2,0
+         ST    R2,FILSEQ-FILSECT(,R1)
+         WHCSBX10
+*
+BACKINSR L     R15,FILLRECL-FILSECT(,R1)
+         ICM   R15,1,0(R14)
+         ICM   R15,3,0(R14)
+         EJECT
+*---------------------------------------------------------------------*
+*        UPDATE RECORD LENGTH FIELD FOR RECORD => BY FILE C/B         *
+*                                                                     *
+*        R1: FILE CONTROL BLOCK                                       *
+*---------------------------------------------------------------------*
+*
+URECLEN  WHCSBI10
+         XR    R15,R15
+         L     R14,FILPTR-FILSECT(,R1)
+         L     R2,FILRDLEN-FILSECT(,R1)
+         SLL   R2,2
+         LA    R2,URECINSR(R2)
+         EX    0,0(,R2)
+         WHCSBX10 PASS=R15
+*
+URECINSR L     R15,FILLRECL-FILSECT(,R1)
+         ICM   R15,1,0(R14)
+         ICM   R15,3,0(R14)
+         EJECT
+*---------------------------------------------------------------------*
+*        BUILD BOX COLUMNS CONDITIONALLY                              *
+*---------------------------------------------------------------------*
+*
+CCOL     WHCSBI10
+         TM    PROCESS,PROCBOX
+         BZ    CCOLX
+         L     R2,LBOXPTR
+         MVC   0(L'$BXCV,R2),$BXCV
+         L     R2,RBOXPTR
+         MVC   0(L'$BXCV,R2),$BXCV
+*
+CCOLX    EQU   *
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        GENERATE BOX TOP CONDITIONALLY                               *
+*                                                                     *
+*        R1 ==> HORIZONTAL RULE CHARACTER                             *
+*---------------------------------------------------------------------*
+*
+CBOXTOP  WHCSBI10
+         TM    PROCESS,PROCBOX     BOXING?
+         BZ    CBOXTOPX            NO...
+         BAL   R14,BOXTOP          .
+         BAL   R14,PRINT           PRINT LINE
+*
+CBOXTOPX EQU   *
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        BUILD BOX TOP                                                *
+*                                                                     *
+*        R1 => HORIZONTAL RULE CHARACTER                              *
+*---------------------------------------------------------------------*
+*
+BOXTOP   WHCSBI10
+         L     R2,LBOXPTR
+         MVC   0(L'$BXCUL,R2),$BXCUL BUILD BOX
+         L     R14,RBOXPTR         .
+         MVC   0(L'$BXCUR,R14),$BXCUR
+         SR    R14,R2              .
+         SH    R14,=H'2'           .
+         EX    R14,BOXTOPZ         .
+         EX    R14,BOXTOPT         .
+*
+BOXTOPX  EQU   *
+         WHCSBX10
+*
+BOXTOPZ  XC    1(0,R2),1(R2)
+BOXTOPT  TR    1(0,R2),0(R1)
+         EJECT
+*---------------------------------------------------------------------*
+*        GENERATE BOX BOTTOM CONDITIONALLY                            *
+*                                                                     *
+*        R1 ==> HORIZONTAL RULE CHARACTER                             *
+*---------------------------------------------------------------------*
+*
+CBOXBOT  WHCSBI10
+         TM    PROCESS,PROCBOX     BOXING?
+         BZ    CBOXBOTX            NO...
+         BAL   R14,BOXBOT          .
+         BAL   R14,PRINT           PRINT LINE
+*
+CBOXBOTX EQU   *
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        BUILD BOX BOTTOM                                             *
+*                                                                     *
+*        R1 => HORIZONTAL RULE CHARACTER                              *
+*---------------------------------------------------------------------*
+*
+BOXBOT   WHCSBI10
+         L     R2,LBOXPTR
+         MVC   0(L'$BXCLL,R2),$BXCLL
+         L     R14,RBOXPTR         .
+         MVC   0(L'$BXCLR,R14),$BXCLR
+         SR    R14,R2              .
+         SH    R14,=H'2'           .
+         EX    R14,BOXBOTZ         .
+         EX    R14,BOXBOTT         .
+*
+BOXBOTX  EQU   *
+         WHCSBX10
+*
+BOXBOTZ  XC    1(0,R2),1(R2)
+BOXBOTT  TR    1(0,R2),0(R1)
+         EJECT
+*---------------------------------------------------------------------*
+*        MOVE DATA OF CURRENT RECORD IN FILE C/B TO PRINT LINE        *
+*                                                                     *
+*        R1 ==> FILE C/B                                              *
+*---------------------------------------------------------------------*
+*
+MOVEDATA WHCSBI10
+         L     R14,PRECPTR         MOVE AS MUCH OF DATA INTO PLINE
+         L     R15,FILPTR-FILSECT(,R1) AS POSSIBLE
+         A     R15,FILRDLEN-FILSECT(,R1)
+         L     R2,FILCURRL-FILSECT(,R1)
+         C     R2,LARPRINT         .
+         BNH   MOVE3               .
+         L     R2,LARPRINT         .
+*
+MOVE3    EQU   *
+         BCTR  R2,0                .
+         EX    R2,MOVEMOVE         .
+         TM    OPNTAB+C'U',OPNON   XLATE TO UPPERCASE IF REQUIRED
+         BZ    MOVE4               .
+         L     R15,=A(UPPERCAS)    .
+         EX    R2,MOVEUPPR         .
+*
+MOVE4    EQU   *
+         L     R15,=A(XLATE)       TRANSLATE UNPRINTABLES
+         EX    R2,MOVETRAN         .
+         WHCSBX10
+*
+MOVEMOVE MVC   0(0,R14),0(R15)
+MOVEUPPR TR    0(0,R14),0(R15)
+MOVETRAN TR    0(0,R14),0(R15)
+         EJECT
+*---------------------------------------------------------------------*
+*        WRITE UPDATE RECORD                                          *
+*---------------------------------------------------------------------*
+*
+WRITUPD  WHCSBI10
+         PUT   SYSUPD,UPDREC
+*
+         LA    R0,1                COUNT
+         A     R0,UPDCNT           .
+         ST    R0,UPDCNT           .
+         MVI   UPDREC,$BLANK       CLEAR
+         MVC   UPDREC+1(L'UPDREC-1),UPDREC
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        EDIT SEQUENCE NUMBER 1                                       *
+*---------------------------------------------------------------------*
+*
+EDSEQ1   WHCSBI10
+         L     R0,FILSEQ-FILSECT+CFIL1
+         CVD   R0,DW
+         MVC   WORK6,=XL6'402020202120'
+         ED    WORK6,DW+5
+         L     R2,PSEQPTR
+         MVC   SEQ1-SEQSECT(L'SEQ1,R2),WORK6+L'WORK6-L'SEQ1
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        EDIT SEQUENCE NUMBER 2                                       *
+*---------------------------------------------------------------------*
+*
+EDSEQ2   WHCSBI10
+         L     R0,FILSEQ-FILSECT+CFIL2
+         CVD   R0,DW
+         MVC   WORK6,=XL6'402020202120'
+         ED    WORK6,DW+5
+         L     R2,PSEQPTR
+         MVC   SEQ2-SEQSECT(L'SEQ2,R2),WORK6+L'WORK6-L'SEQ2
+         WHCSBX10
+         EJECT
+*---------------------------------------------------------------------*
+*        CALCULATE # LINES THAT NEED TO BE RESERVED AT BOTTOM         *
+*        OF PAGE WHEN BUILDING BOXES                                  *
+*---------------------------------------------------------------------*
+*
+KRES     WHCSBI10
+         XR    R15,R15             START WITH 0
+         TM    OPNTAB+C'M',OPNON   ISSUING MESSAGES?
+         BZ    KRES2               NO...
+         LA    R15,1(,R15)
+*
+KRES2    EQU   *
+         TM    PROCESS,PROCBOX     BOXING?
+         BZ    KRESX               NO...
+         LA    R15,1(,R15)
+*
+KRESX    EQU   *
+         WHCSBX10 PASS=R15
+         EJECT
+*---------------------------------------------------------------------*
+*        CALCULATE # LINES THAT NEED TO BE REMAINING BEFORE           *
+*        STARTING UP BOX, IN ORDER TO PREVENT GENERATING              *
+*        EMPTY BOXES                                                  *
+*---------------------------------------------------------------------*
+*
+KBRES    WHCSBI10
+         LA    R15,1               FOR SPACE THAT BEGINS INS/DEL SEG'S
+         TM    OPNTAB+C'M',OPNON   ISSUING MESSAGES?
+         BZ    KBRES2              NO...
+         LA    R15,2(,R15)         -1STMSG -LASTMSG
+*
+KBRES2   EQU   *
+         TM    PROCESS,PROCBOX     BOXING?
+         BZ    KBRESX              NO...
+         LA    R15,2(,R15)         -BOXTOP -BOXBOTTOM
+*
+KBRESX   EQU   *
+         WHCSBX10 PASS=R15
+         EJECT
+*---------------------------------------------------------------------*
+*        LITERALS                                                     *
+*---------------------------------------------------------------------*
+*
+         PRINT NOGEN
+INDCB    DCB   DDNAME=IN,DSORG=PS,MACRF=GL
+OUTDCB   DCB   DDNAME=OUT,DSORG=PS,MACRF=PM
+         PRINT GEN
+*
+DIAGLIT  DC    C' COMPARATOR DIAGNOSTICS '
+LIBFIRST DC    C'FIRST'
+*
+SCALE1   DC    C'1...+....10...+....20...+....30...+....40...+....50...X
+               +....60...+....70...+....80...+....90...+....100..+....1X
+               10..+....120..+....130'
+*
+SCALE2   DC    C'0...+....1....+....2....+....3....+....4....+....5....X
+               +....6....+....7....+....8....+....9....+....0....+....1X
+               ....+....2....+....3..'
+*
+UDELLIT  DC    C'-DEL '
+UINSLIT  DC    C'-INS '
+C1LIT    DC    C' BASE FILE: '
+C2LIT    DC    C' REVISION FILE: '
+PNOMASK  DC    X'4020202020202120'
+PNOLIT   DC    C'PAGE '
+DSNTRML  DC    C' '
+GENTITLE DC    C'VM COMPARATOR SERIES  (C) 1988 W. A. HUMPHRIES INCORPOX
+               RATED'
+         EJECT
+*---------------------------------------------------------------------*
+*        LITERALS                                                     *
+*---------------------------------------------------------------------*
+*
+         LTORG
+         EJECT
+NUMTAB   WHCTBN10
+         EJECT
+BLANKTAB WHCTBB10
+         EJECT
+BXC1403  WHCBXC10 TYPE=1403
+         EJECT
+BXC1403T WHCBXC10 TYPE=1403T
+         EJECT
+BXC3800  WHCBXC10 TYPE=3800
+         EJECT
+XLATE    WHCTBS10 FILL=4B,TYPE=3800
+         EJECT
+UPPERCAS WHCTBU10
+         EJECT
+H1D      DC    CL(L'PLINE)'0'
+         ORG   H1D+1+(L'PLINE-1-H1DLEN)/2
+H1DBGN   EQU   *
+         DC    C'DELTA COMPARATOR (&WHLV1..&WHLV2.)'
+H1DLEN   EQU   *-H1DBGN
+         ORG   ,
+         EJECT
+         DCBD  DSORG=QS,DEVD=DA
+*
+         END
